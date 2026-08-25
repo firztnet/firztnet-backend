@@ -57,7 +57,7 @@ def enviar_email_comprobante(reparacion, tipo, pdf_buffer, nombre_archivo):
 
     msg.add_attachment(pdf_buffer.getvalue(), maintype="application", subtype="pdf", filename=nombre_archivo)
 
-    with smtplib.SMTP_SSL(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT) as server:
+    with smtplib.SMTP_SSL(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, timeout=12) as server:
         server.login(EMAIL_REMITENTE, EMAIL_PASSWORD)
         server.send_message(msg)
 
