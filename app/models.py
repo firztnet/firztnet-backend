@@ -7,6 +7,7 @@ GARANTIA_MESES = 6
 class Cliente(db.Model):
     __tablename__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
+    codigo = db.Column(db.String(20), unique=True)
     nombre = db.Column(db.String(120), nullable=False)
     telefono = db.Column(db.String(30))
     email = db.Column(db.String(120))
@@ -17,6 +18,7 @@ class Cliente(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
+            "codigo": self.codigo,
             "nombre": self.nombre,
             "telefono": self.telefono,
             "email": self.email,
@@ -163,11 +165,43 @@ class MovimientoFinanciero(db.Model):
         }
 
 
+class ConfiguracionNegocio(db.Model):
+    """Fila única (id=1) con los datos del negocio que aparecen en los
+    comprobantes: nombre, dirección, teléfono, email. Editable desde el
+    panel, sin necesidad de tocar código ni redesplegar."""
+    __tablename__ = "configuracion_negocio"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre_negocio = db.Column(db.String(120), default="Firztnet")
+    eslogan = db.Column(db.String(160), default="Reparación y soporte técnico")
+    direccion = db.Column(db.String(200))
+    telefono = db.Column(db.String(30))
+    email = db.Column(db.String(120))
+
+    def to_dict(self):
+        return {
+            "nombre_negocio": self.nombre_negocio,
+            "eslogan": self.eslogan,
+            "direccion": self.direccion,
+            "telefono": self.telefono,
+            "email": self.email,
+        }
+
+    @staticmethod
+    def obtener():
+        config = ConfiguracionNegocio.query.get(1)
+        if not config:
+            config = ConfiguracionNegocio(id=1)
+            db.session.add(config)
+            db.session.commit()
+        return config
+
+
 class Comprobante(db.Model):
     __tablename__ = "comprobantes"
     id = db.Column(db.Integer, primary_key=True)
     reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=False)
     tipo = db.Column(db.String(20), nullable=False)  # recepcion, entrega, no_reparable
+    url_pdf = db.Column(db.String(255))
     enlace_seguimiento = db.Column(db.String(255))
     fecha_generado = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -176,6 +210,7 @@ class Comprobante(db.Model):
             "id": self.id,
             "reparacion_id": self.reparacion_id,
             "tipo": self.tipo,
+            "url_pdf": self.url_pdf,
             "enlace_seguimiento": self.enlace_seguimiento,
             "fecha_generado": self.fecha_generado.isoformat() if self.fecha_generado else None,
         }

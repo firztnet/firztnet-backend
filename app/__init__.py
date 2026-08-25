@@ -19,6 +19,7 @@ def create_app():
     from app.routes.finanzas import finanzas_bp
     from app.routes.reportes import reportes_bp
     from app.routes.comprobantes import comprobantes_bp
+    from app.routes.configuracion import configuracion_bp
 
     app.register_blueprint(clientes_bp, url_prefix="/api/clientes")
     app.register_blueprint(reparaciones_bp, url_prefix="/api/reparaciones")
@@ -27,6 +28,7 @@ def create_app():
     app.register_blueprint(finanzas_bp, url_prefix="/api/finanzas")
     app.register_blueprint(reportes_bp, url_prefix="/api/reportes")
     app.register_blueprint(comprobantes_bp, url_prefix="/api/comprobantes")
+    app.register_blueprint(configuracion_bp, url_prefix="/api/configuracion")
 
     @app.get("/api/salud")
     def salud():

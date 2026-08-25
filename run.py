@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import Estado
+from app.models import Estado, Cliente
 import os
 
 app = create_app()
@@ -21,6 +21,14 @@ with app.app_context():
     if Estado.query.count() == 0:
         for codigo, nombre, orden in ESTADOS_INICIALES:
             db.session.add(Estado(codigo=codigo, nombre=nombre, orden=orden))
+        db.session.commit()
+
+    # Asigna código a clientes ya existentes que se crearon antes de que
+    # este campo existiera (por si la base de datos ya tenía clientes).
+    sin_codigo = Cliente.query.filter(Cliente.codigo.is_(None)).order_by(Cliente.id).all()
+    for cliente in sin_codigo:
+        cliente.codigo = f"CLI-{cliente.id:04d}"
+    if sin_codigo:
         db.session.commit()
 
 if __name__ == "__main__":

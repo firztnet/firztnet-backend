@@ -5,6 +5,13 @@ from app.models import Cliente
 clientes_bp = Blueprint("clientes", __name__)
 
 
+def generar_codigo_cliente():
+    """Nº correlativo simple para identificar al cliente, ej: CLI-0001."""
+    ultimo = Cliente.query.order_by(Cliente.id.desc()).first()
+    siguiente = (ultimo.id + 1) if ultimo else 1
+    return f"CLI-{siguiente:04d}"
+
+
 @clientes_bp.get("")
 def listar_clientes():
     q = request.args.get("q", "").strip()
@@ -21,7 +28,12 @@ def crear_cliente():
     if not data.get("nombre"):
         return jsonify({"error": "El nombre es obligatorio"}), 400
 
-    cliente = Cliente(nombre=data["nombre"], telefono=data.get("telefono"), email=data.get("email"))
+    cliente = Cliente(
+        codigo=generar_codigo_cliente(),
+        nombre=data["nombre"],
+        telefono=data.get("telefono"),
+        email=data.get("email"),
+    )
     db.session.add(cliente)
     db.session.commit()
     return jsonify(cliente.to_dict()), 201
