@@ -12,3 +12,9 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SECRET_KEY = os.environ.get("SECRET_KEY", "cambia-esta-clave-en-produccion")
+
+    # Credenciales de acceso al panel. Cámbialas con las variables de
+    # entorno ADMIN_USERNAME / ADMIN_PASSWORD en Railway — no dejes las
+    # de por defecto en producción.
+    ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "cambia-esta-contraseña")

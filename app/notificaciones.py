@@ -1,18 +1,20 @@
-"""Envío del comprobante por email (real, vía SMTP) y generación del
-enlace de WhatsApp (wa.me) con el mensaje ya redactado."""
+"""Envío del comprobante por email (vía la API de Resend, por HTTPS —
+no por SMTP, porque Railway bloquea las conexiones salientes directas
+a los puertos de correo) y generación del enlace de WhatsApp (wa.me)
+con el mensaje ya redactado."""
 import os
-import smtplib
+import base64
 import urllib.parse
-from email.message import EmailMessage
+import urllib.request
+import json
 
-# Configura estas variables de entorno antes de arrancar el servidor
-# (o ponlas en un archivo .env). Con Gmail, EMAIL_PASSWORD debe ser una
-# "contraseña de aplicación", no tu contraseña normal:
-# https://myaccount.google.com/apppasswords
-EMAIL_REMITENTE = os.environ.get("EMAIL_REMITENTE")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-EMAIL_SMTP_HOST = os.environ.get("EMAIL_SMTP_HOST", "smtp.gmail.com")
-EMAIL_SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", "465"))
+# Configura estas dos variables de entorno antes de arrancar el servidor:
+# RESEND_API_KEY  -> la API key que te da resend.com (gratis, sin tarjeta)
+# EMAIL_REMITENTE -> el email que aparece como remitente. Mientras no
+#   verifiques tu propio dominio en Resend, usa "onboarding@resend.dev"
+#   (funciona igual, solo cambia lo que ve el cliente en el "De:").
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+EMAIL_REMITENTE = os.environ.get("EMAIL_REMITENTE", "onboarding@resend.dev")
 
 MENSAJES = {
     "recepcion": (
@@ -41,27 +43,43 @@ def _texto_mensaje(reparacion, tipo):
 
 
 def enviar_email_comprobante(reparacion, tipo, pdf_buffer, nombre_archivo):
-    """Envía el PDF adjunto al email del cliente. Requiere que el cliente
-    tenga email guardado y que EMAIL_REMITENTE/EMAIL_PASSWORD estén
-    configurados como variables de entorno."""
+    """Envía el PDF adjunto al email del cliente vía la API de Resend.
+    Requiere que el cliente tenga email guardado y que RESEND_API_KEY
+    esté configurada como variable de entorno."""
     if not reparacion.cliente or not reparacion.cliente.email:
         return {"enviado": False, "motivo": "El cliente no tiene email registrado"}
-    if not EMAIL_REMITENTE or not EMAIL_PASSWORD:
-        return {"enviado": False, "motivo": "Falta configurar EMAIL_REMITENTE / EMAIL_PASSWORD"}
+    if not RESEND_API_KEY:
+        return {"enviado": False, "motivo": "Falta configurar RESEND_API_KEY"}
 
-    msg = EmailMessage()
-    msg["Subject"] = f"Firztnet — {tipo.replace('_', ' ')} · orden {reparacion.numero_orden}"
-    msg["From"] = EMAIL_REMITENTE
-    msg["To"] = reparacion.cliente.email
-    msg.set_content(_texto_mensaje(reparacion, tipo))
+    pdf_base64 = base64.b64encode(pdf_buffer.getvalue()).decode("ascii")
 
-    msg.add_attachment(pdf_buffer.getvalue(), maintype="application", subtype="pdf", filename=nombre_archivo)
+    payload = json.dumps({
+        "from": f"Firztnet <{EMAIL_REMITENTE}>",
+        "to": [reparacion.cliente.email],
+        "subject": f"Firztnet — {tipo.replace('_', ' ')} · orden {reparacion.numero_orden}",
+        "text": _texto_mensaje(reparacion, tipo),
+        "attachments": [{"filename": nombre_archivo, "content": pdf_base64}],
+    }).encode("utf-8")
 
-    with smtplib.SMTP_SSL(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, timeout=12) as server:
-        server.login(EMAIL_REMITENTE, EMAIL_PASSWORD)
-        server.send_message(msg)
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
 
-    return {"enviado": True}
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+        return {"enviado": True}
+    except urllib.error.HTTPError as e:
+        detalle = e.read().decode("utf-8", errors="ignore")
+        return {"enviado": False, "motivo": f"Resend respondió {e.code}: {detalle[:200]}"}
+    except Exception as e:
+        return {"enviado": False, "motivo": str(e)}
 
 
 def generar_enlace_whatsapp(reparacion, tipo):

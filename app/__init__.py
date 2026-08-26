@@ -1,6 +1,7 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from app.auth import registrar_proteccion
 
 db = SQLAlchemy()
 
@@ -11,7 +12,9 @@ def create_app():
 
     db.init_app(app)
     CORS(app)  # permite que el frontend (web/app) consuma esta API
+    registrar_proteccion(app)  # exige login (token) en toda la API
 
+    from app.routes.auth import auth_bp
     from app.routes.clientes import clientes_bp
     from app.routes.reparaciones import reparaciones_bp
     from app.routes.repuestos import repuestos_bp
@@ -21,6 +24,7 @@ def create_app():
     from app.routes.comprobantes import comprobantes_bp
     from app.routes.configuracion import configuracion_bp
 
+    app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(clientes_bp, url_prefix="/api/clientes")
     app.register_blueprint(reparaciones_bp, url_prefix="/api/reparaciones")
     app.register_blueprint(repuestos_bp, url_prefix="/api/repuestos")
