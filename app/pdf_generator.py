@@ -126,3 +126,169 @@ def generar_pdf_comprobante(reparacion, tipo, enlace_seguimiento=None):
     c.save()
     buffer.seek(0)
     return buffer
+
+
+def _dibujar_cabecera(c, negocio, ancho, alto, margen, subtitulo=None):
+    """Cabecera azul compartida por comprobantes, recibos y facturas."""
+    c.setFillColor(AZUL)
+    c.rect(0, alto - 22 * mm, ancho, 22 * mm, fill=True, stroke=False)
+    c.setFillColor(HexColor("#FFFFFF"))
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(margen, alto - 14 * mm, (negocio.nombre_negocio or "Firztnet").upper())
+    c.setFont("Helvetica", 9)
+    c.drawString(margen, alto - 19 * mm, subtitulo or negocio.eslogan or "")
+
+
+def generar_pdf_recibo(reparacion, movimientos_ingreso):
+    """Recibo sencillo de los cobros hechos por una reparación — no es
+    una factura fiscal, solo justifica el pago (importe, concepto,
+    método, fecha). Vale para la mayoría de clientes que no piden
+    factura formal."""
+    negocio = ConfiguracionNegocio.obtener()
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A5)
+    ancho, alto = A5
+    margen = 14 * mm
+    _dibujar_cabecera(c, negocio, ancho, alto, margen)
+
+    y = alto - 32 * mm
+    c.setFillColor(GRIS_TEXTO)
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(margen, y, "Recibo de pago")
+    y -= 6 * mm
+    c.setFont("Helvetica", 9)
+    c.setFillColor(AZUL)
+    c.drawString(margen, y, f"Nº de orden: {reparacion.numero_orden}")
+    y -= 10 * mm
+
+    c.setFillColor(GRIS_CLARO)
+    c.setFont("Helvetica", 8.5)
+    c.drawString(margen, y, "Cliente")
+    c.setFillColor(GRIS_TEXTO)
+    c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(margen, y - 4.2 * mm, reparacion.cliente.nombre if reparacion.cliente else "—")
+    y -= 14 * mm
+
+    # Cabecera de la tabla de conceptos
+    c.setFillColor(GRIS_CLARO)
+    c.setFont("Helvetica", 8)
+    c.drawString(margen, y, "CONCEPTO")
+    c.drawString(margen + 78 * mm, y, "MÉTODO")
+    c.drawRightString(ancho - margen, y, "IMPORTE")
+    y -= 4 * mm
+    c.setStrokeColor(GRIS_CLARO)
+    c.line(margen, y, ancho - margen, y)
+    y -= 6 * mm
+
+    total = 0
+    c.setFont("Helvetica", 9)
+    c.setFillColor(GRIS_TEXTO)
+    for m in movimientos_ingreso:
+        c.drawString(margen, y, (m.concepto or "Reparación")[:40])
+        c.drawString(margen + 78 * mm, y, (m.metodo_pago or "—").capitalize())
+        c.drawRightString(ancho - margen, y, f"{float(m.monto):,.2f} €")
+        total += float(m.monto)
+        y -= 6 * mm
+
+    y -= 2 * mm
+    c.setStrokeColor(GRIS_CLARO)
+    c.line(margen, y, ancho - margen, y)
+    y -= 8 * mm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(AZUL)
+    c.drawString(margen, y, "TOTAL COBRADO")
+    c.drawRightString(ancho - margen, y, f"{total:,.2f} €")
+
+    contacto = " · ".join(filter(None, [negocio.direccion, negocio.telefono, negocio.email]))
+    if contacto:
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 7)
+        c.drawString(margen, 10 * mm, contacto[:100])
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+
+def generar_pdf_factura(factura, reparacion, cliente, negocio):
+    """Factura fiscal formal: nº correlativo, NIF de ambas partes,
+    base imponible, IVA desglosado y total."""
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A5)
+    ancho, alto = A5
+    margen = 14 * mm
+    _dibujar_cabecera(c, negocio, ancho, alto, margen, subtitulo=f"NIF: {negocio.nif or '—'}")
+
+    y = alto - 32 * mm
+    c.setFillColor(GRIS_TEXTO)
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(margen, y, "FACTURA")
+    c.setFont("Helvetica-Bold", 11)
+    c.setFillColor(AZUL)
+    c.drawRightString(ancho - margen, y, factura.numero)
+    y -= 7 * mm
+
+    c.setFont("Helvetica", 8.5)
+    c.setFillColor(GRIS_CLARO)
+    c.drawString(margen, y, f"Fecha de emisión: {_fecha(factura.fecha_emision)}")
+    c.drawRightString(ancho - margen, y, f"Nº de orden: {reparacion.numero_orden}")
+    y -= 10 * mm
+
+    # Datos del cliente
+    c.setFillColor(GRIS_CLARO)
+    c.setFont("Helvetica", 8)
+    c.drawString(margen, y, "FACTURAR A")
+    y -= 5 * mm
+    c.setFillColor(GRIS_TEXTO)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margen, y, cliente.nombre)
+    y -= 5 * mm
+    c.setFont("Helvetica", 9)
+    c.drawString(margen, y, f"NIF: {cliente.nif or '—'}")
+    y -= 12 * mm
+
+    # Tabla de conceptos (una sola línea: la reparación completa)
+    c.setFillColor(GRIS_CLARO)
+    c.setFont("Helvetica", 8)
+    c.drawString(margen, y, "CONCEPTO")
+    c.drawRightString(ancho - margen, y, "IMPORTE")
+    y -= 4 * mm
+    c.setStrokeColor(GRIS_CLARO)
+    c.line(margen, y, ancho - margen, y)
+    y -= 7 * mm
+
+    c.setFillColor(GRIS_TEXTO)
+    c.setFont("Helvetica", 9.5)
+    c.drawString(margen, y, (factura.concepto or f"Reparación de {reparacion.equipo}")[:55])
+    c.drawRightString(ancho - margen, y, f"{float(factura.base_imponible):,.2f} €")
+    y -= 10 * mm
+
+    c.setStrokeColor(GRIS_CLARO)
+    c.line(margen, y, ancho - margen, y)
+    y -= 8 * mm
+
+    def total_linea(etiqueta, valor, negrita=False):
+        nonlocal y
+        c.setFont("Helvetica-Bold" if negrita else "Helvetica", 10 if negrita else 9)
+        c.setFillColor(AZUL if negrita else GRIS_TEXTO)
+        c.drawString(margen, y, etiqueta)
+        c.drawRightString(ancho - margen, y, valor)
+        y -= 6.5 * mm
+
+    total_linea("Base imponible", f"{float(factura.base_imponible):,.2f} €")
+    total_linea(f"IVA ({float(factura.iva_pct):.0f}%)", f"{float(factura.iva_importe):,.2f} €")
+    y -= 1.5 * mm
+    total_linea("TOTAL", f"{float(factura.total):,.2f} €", negrita=True)
+
+    contacto = " · ".join(filter(None, [negocio.direccion, negocio.telefono, negocio.email]))
+    if contacto:
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 7)
+        c.drawString(margen, 10 * mm, contacto[:100])
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer

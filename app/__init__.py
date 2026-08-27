@@ -23,6 +23,8 @@ def create_app():
     from app.routes.reportes import reportes_bp
     from app.routes.comprobantes import comprobantes_bp
     from app.routes.configuracion import configuracion_bp
+    from app.routes.recibos import recibos_bp
+    from app.routes.facturas import facturas_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(clientes_bp, url_prefix="/api/clientes")
@@ -33,6 +35,8 @@ def create_app():
     app.register_blueprint(reportes_bp, url_prefix="/api/reportes")
     app.register_blueprint(comprobantes_bp, url_prefix="/api/comprobantes")
     app.register_blueprint(configuracion_bp, url_prefix="/api/configuracion")
+    app.register_blueprint(recibos_bp, url_prefix="/api/recibos")
+    app.register_blueprint(facturas_bp, url_prefix="/api/facturas")
 
     @app.get("/api/salud")
     def salud():

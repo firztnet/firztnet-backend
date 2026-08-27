@@ -11,6 +11,7 @@ class Cliente(db.Model):
     nombre = db.Column(db.String(120), nullable=False)
     telefono = db.Column(db.String(30))
     email = db.Column(db.String(120))
+    nif = db.Column(db.String(20))  # solo hace falta si pide factura
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
 
     reparaciones = db.relationship("Reparacion", backref="cliente", lazy=True)
@@ -22,6 +23,7 @@ class Cliente(db.Model):
             "nombre": self.nombre,
             "telefono": self.telefono,
             "email": self.email,
+            "nif": self.nif,
         }
 
 
@@ -176,6 +178,8 @@ class ConfiguracionNegocio(db.Model):
     direccion = db.Column(db.String(200))
     telefono = db.Column(db.String(30))
     email = db.Column(db.String(120))
+    nif = db.Column(db.String(20))  # necesario para emitir facturas
+    iva_pct = db.Column(db.Numeric(5, 2), default=21)  # % de IVA que aplicas
 
     def to_dict(self):
         return {
@@ -184,6 +188,8 @@ class ConfiguracionNegocio(db.Model):
             "direccion": self.direccion,
             "telefono": self.telefono,
             "email": self.email,
+            "nif": self.nif,
+            "iva_pct": float(self.iva_pct if self.iva_pct is not None else 21),
         }
 
     @staticmethod
@@ -194,6 +200,41 @@ class ConfiguracionNegocio(db.Model):
             db.session.add(config)
             db.session.commit()
         return config
+
+
+class Factura(db.Model):
+    """Factura fiscal formal, con numeración correlativa (obligatoria por
+    ley: sin huecos, en orden cronológico). Una vez emitida no se borra
+    ni se renumera — si hay un error, se anula con una rectificativa
+    (no implementado todavía, de momento evita borrar facturas)."""
+    __tablename__ = "facturas"
+    id = db.Column(db.Integer, primary_key=True)
+    numero = db.Column(db.String(20), unique=True, nullable=False)
+    reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=False)
+    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
+    concepto = db.Column(db.String(200))
+    base_imponible = db.Column(db.Numeric(10, 2), nullable=False)
+    iva_pct = db.Column(db.Numeric(5, 2), nullable=False)
+    iva_importe = db.Column(db.Numeric(10, 2), nullable=False)
+    total = db.Column(db.Numeric(10, 2), nullable=False)
+    fecha_emision = db.Column(db.DateTime, default=datetime.utcnow)
+
+    reparacion = db.relationship("Reparacion")
+    cliente = db.relationship("Cliente")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "numero": self.numero,
+            "reparacion_id": self.reparacion_id,
+            "cliente_id": self.cliente_id,
+            "concepto": self.concepto,
+            "base_imponible": float(self.base_imponible),
+            "iva_pct": float(self.iva_pct),
+            "iva_importe": float(self.iva_importe),
+            "total": float(self.total),
+            "fecha_emision": self.fecha_emision.isoformat() if self.fecha_emision else None,
+        }
 
 
 class Comprobante(db.Model):

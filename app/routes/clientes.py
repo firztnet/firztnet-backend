@@ -33,6 +33,7 @@ def crear_cliente():
         nombre=data["nombre"],
         telefono=data.get("telefono"),
         email=data.get("email"),
+        nif=data.get("nif"),
     )
     db.session.add(cliente)
     db.session.commit()
@@ -54,5 +55,6 @@ def actualizar_cliente(cliente_id):
     cliente.nombre = data.get("nombre", cliente.nombre)
     cliente.telefono = data.get("telefono", cliente.telefono)
     cliente.email = data.get("email", cliente.email)
+    cliente.nif = data.get("nif", cliente.nif)
     db.session.commit()
     return jsonify(cliente.to_dict())

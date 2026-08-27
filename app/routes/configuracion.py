@@ -19,5 +19,11 @@ def actualizar_configuracion():
     config.direccion = data.get("direccion", config.direccion)
     config.telefono = data.get("telefono", config.telefono)
     config.email = data.get("email", config.email)
+    config.nif = data.get("nif", config.nif)
+    if "iva_pct" in data:
+        try:
+            config.iva_pct = float(data["iva_pct"])
+        except (TypeError, ValueError):
+            pass
     db.session.commit()
     return jsonify(config.to_dict())
