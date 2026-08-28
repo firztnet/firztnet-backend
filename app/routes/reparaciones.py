@@ -58,6 +58,8 @@ def crear_reparacion():
         estado_entrada=data.get("estado_entrada"),
         estado_actual="recibido",
     )
+    if data.get("fecha_estimada"):
+        reparacion.fecha_estimada = datetime.fromisoformat(data["fecha_estimada"])
     db.session.add(reparacion)
     db.session.commit()
     return jsonify(reparacion.to_dict()), 201
@@ -70,6 +72,18 @@ def obtener_reparacion(rep_id):
     data["repuestos_usados"] = [rr.to_dict() for rr in reparacion.repuestos_usados]
     data["movimientos"] = [m.to_dict() for m in reparacion.movimientos]
     return jsonify(data)
+
+
+@reparaciones_bp.patch("/<int:rep_id>")
+def editar_reparacion(rep_id):
+    """Para editar campos sueltos después de crearla, como la fecha
+    estimada de entrega (si al principio no la sabías)."""
+    reparacion = Reparacion.query.get_or_404(rep_id)
+    data = request.get_json() or {}
+    if "fecha_estimada" in data:
+        reparacion.fecha_estimada = datetime.fromisoformat(data["fecha_estimada"]) if data["fecha_estimada"] else None
+    db.session.commit()
+    return jsonify(reparacion.to_dict())
 
 
 @reparaciones_bp.patch("/<int:rep_id>/estado")

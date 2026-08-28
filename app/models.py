@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import secrets
 from app import db
 
 GARANTIA_MESES = 6
@@ -93,6 +94,10 @@ class Reparacion(db.Model):
     fecha_entrega = db.Column(db.DateTime)
     fecha_fin_garantia = db.Column(db.DateTime)
 
+    # Identificador aleatorio (no adivinable, a diferencia del nº de orden
+    # que es correlativo) para la página pública de seguimiento del cliente.
+    token_seguimiento = db.Column(db.String(40), unique=True, default=lambda: secrets.token_hex(8))
+
     repuestos_usados = db.relationship("ReparacionRepuesto", backref="reparacion", lazy=True)
     movimientos = db.relationship("MovimientoFinanciero", backref="reparacion", lazy=True)
     comprobantes = db.relationship("Comprobante", backref="reparacion", lazy=True)
@@ -121,6 +126,7 @@ class Reparacion(db.Model):
             "fecha_estimada": self.fecha_estimada.isoformat() if self.fecha_estimada else None,
             "fecha_entrega": self.fecha_entrega.isoformat() if self.fecha_entrega else None,
             "fecha_fin_garantia": self.fecha_fin_garantia.isoformat() if self.fecha_fin_garantia else None,
+            "token_seguimiento": self.token_seguimiento,
         }
 
 

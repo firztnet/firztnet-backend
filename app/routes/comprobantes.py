@@ -1,4 +1,4 @@
-import uuid
+import os
 from flask import Blueprint, request, jsonify, send_file
 from app import db
 from app.models import Comprobante, Reparacion
@@ -6,6 +6,11 @@ from app.pdf_generator import generar_pdf_comprobante
 from app.notificaciones import enviar_email_comprobante, generar_enlace_whatsapp
 
 comprobantes_bp = Blueprint("comprobantes", __name__)
+
+# La URL de tu panel en Vercel. Configúrala como variable de entorno
+# FRONTEND_URL en Railway si cambia (por ejemplo, cuando conectes tu
+# propio dominio firztnet.es).
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://firztnet-preview.vercel.app")
 
 
 @comprobantes_bp.post("")
@@ -18,7 +23,7 @@ def generar_comprobante():
     reparacion = Reparacion.query.get_or_404(data.get("reparacion_id"))
     tipo = data.get("tipo", "recepcion")
 
-    enlace = f"https://firztnet.example/seguimiento/{reparacion.numero_orden}-{uuid.uuid4().hex[:6]}"
+    enlace = f"{FRONTEND_URL}/seguimiento?token={reparacion.token_seguimiento}"
 
     comprobante = Comprobante(
         reparacion_id=reparacion.id,

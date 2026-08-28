@@ -1,7 +1,8 @@
 from app import create_app, db
-from app.models import Estado, Cliente
+from app.models import Estado, Cliente, Reparacion
 from app.migraciones import aplicar_migraciones
 import os
+import secrets
 
 app = create_app()
 
@@ -32,6 +33,13 @@ with app.app_context():
     for cliente in sin_codigo:
         cliente.codigo = f"CLI-{cliente.id:04d}"
     if sin_codigo:
+        db.session.commit()
+
+    # Igual, pero para el token de la página pública de seguimiento.
+    sin_token = Reparacion.query.filter(Reparacion.token_seguimiento.is_(None)).all()
+    for reparacion in sin_token:
+        reparacion.token_seguimiento = secrets.token_hex(8)
+    if sin_token:
         db.session.commit()
 
 if __name__ == "__main__":

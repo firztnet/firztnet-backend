@@ -8,6 +8,7 @@ from flask import request, jsonify
 DURACION_TOKEN_SEGUNDOS = 60 * 60 * 24 * 14  # 14 días
 
 RUTAS_PUBLICAS = ("/api/auth/login", "/api/salud")
+PREFIJOS_PUBLICOS = ("/api/seguimiento/",)  # la URL cambia por reparación (token)
 
 
 def generar_token(username, secret_key):
@@ -32,7 +33,7 @@ def registrar_proteccion(app):
         if request.method == "OPTIONS":
             return
 
-        if request.path in RUTAS_PUBLICAS or not request.path.startswith("/api/"):
+        if request.path in RUTAS_PUBLICAS or request.path.startswith(PREFIJOS_PUBLICOS) or not request.path.startswith("/api/"):
             return
 
         auth_header = request.headers.get("Authorization", "")

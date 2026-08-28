@@ -15,6 +15,9 @@ COLUMNAS_NUEVAS = {
         ("nif", "VARCHAR(20)"),
         ("iva_pct", "NUMERIC(5, 2) DEFAULT 21"),
     ],
+    "reparaciones": [
+        ("token_seguimiento", "VARCHAR(40)"),
+    ],
 }
 
 
