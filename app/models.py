@@ -243,6 +243,26 @@ class Factura(db.Model):
         }
 
 
+class FotoReparacion(db.Model):
+    """Fotos del estado físico del equipo al recibirlo (rayones, golpes,
+    piezas que faltan) — evita disputas con el cliente sobre daños
+    previos. El archivo en sí se guarda en disco (en el volumen
+    persistente), aquí solo el nombre y la fecha."""
+    __tablename__ = "fotos_reparacion"
+    id = db.Column(db.Integer, primary_key=True)
+    reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=False)
+    nombre_archivo = db.Column(db.String(120), nullable=False)
+    fecha_subida = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "reparacion_id": self.reparacion_id,
+            "nombre_archivo": self.nombre_archivo,
+            "fecha_subida": self.fecha_subida.isoformat() if self.fecha_subida else None,
+        }
+
+
 class Comprobante(db.Model):
     __tablename__ = "comprobantes"
     id = db.Column(db.Integer, primary_key=True)
