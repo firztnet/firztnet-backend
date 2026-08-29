@@ -27,6 +27,7 @@ def create_app():
     from app.routes.facturas import facturas_bp
     from app.routes.seguimiento import seguimiento_bp
     from app.routes.fotos import fotos_bp
+    from app.routes.presupuestos import presupuestos_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(clientes_bp, url_prefix="/api/clientes")
@@ -41,6 +42,7 @@ def create_app():
     app.register_blueprint(facturas_bp, url_prefix="/api/facturas")
     app.register_blueprint(seguimiento_bp, url_prefix="/api/seguimiento")
     app.register_blueprint(fotos_bp, url_prefix="/api")
+    app.register_blueprint(presupuestos_bp, url_prefix="/api")
 
     @app.get("/api/salud")
     def salud():

@@ -1,7 +1,8 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from app import db
-from app.models import Reparacion, Cliente, ReparacionRepuesto, Repuesto
+from app.models import Reparacion, Cliente, ReparacionRepuesto, Repuesto, Firma
+from app.firmas import guardar_firma_png
 
 reparaciones_bp = Blueprint("reparaciones", __name__)
 
@@ -130,3 +131,31 @@ def añadir_repuesto(rep_id):
     db.session.add(uso)
     db.session.commit()
     return jsonify(uso.to_dict()), 201
+
+
+@reparaciones_bp.post("/<int:rep_id>/firma-entrega")
+def firmar_entrega(rep_id):
+    """Firma del cliente al recoger el equipo, dibujada en el mostrador
+    (tablet o móvil del negocio, con tu sesión iniciada)."""
+    reparacion = Reparacion.query.get_or_404(rep_id)
+    data = request.get_json() or {}
+    firma_png = data.get("firma_png")
+    if not firma_png:
+        return jsonify({"error": "Falta la firma"}), 400
+
+    nombre_archivo, _ = guardar_firma_png(firma_png, reparacion.id, "entrega")
+    firma = Firma(
+        reparacion_id=reparacion.id,
+        tipo="entrega",
+        nombre_firmante=data.get("nombre_firmante") or (reparacion.cliente.nombre if reparacion.cliente else None),
+        nombre_archivo=nombre_archivo,
+    )
+    db.session.add(firma)
+    db.session.commit()
+    return jsonify(firma.to_dict()), 201
+
+
+@reparaciones_bp.get("/<int:rep_id>/firmas")
+def listar_firmas(rep_id):
+    firmas = Firma.query.filter_by(reparacion_id=rep_id).order_by(Firma.fecha.desc()).all()
+    return jsonify([f.to_dict() for f in firmas])

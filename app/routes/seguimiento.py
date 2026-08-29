@@ -1,6 +1,9 @@
 from urllib.parse import quote
+from datetime import datetime
 from flask import Blueprint, jsonify, request
-from app.models import Reparacion, ConfiguracionNegocio
+from app import db
+from app.models import Reparacion, ConfiguracionNegocio, Firma
+from app.firmas import guardar_firma_png
 
 seguimiento_bp = Blueprint("seguimiento", __name__)
 
@@ -28,9 +31,13 @@ def _enlace_whatsapp_negocio(telefono, numero_orden):
 
 def _respuesta_seguimiento(reparacion):
     """Solo información no sensible — nada de precios, datos de otros
-    clientes, ni nada del negocio en general."""
+    clientes, ni nada del negocio en general. Sí incluye el propio
+    token: si el cliente llegó aquí por token o tras identificarse con
+    nº de orden + DNI/teléfono, ya ha demostrado que es su reparación,
+    y lo necesita para poder firmar el presupuesto después."""
     negocio = ConfiguracionNegocio.obtener()
     return {
+        "token_seguimiento": reparacion.token_seguimiento,
         "numero_orden": reparacion.numero_orden,
         "equipo": reparacion.equipo,
         "estado_actual": reparacion.estado_actual,
@@ -41,6 +48,11 @@ def _respuesta_seguimiento(reparacion):
         "fecha_fin_garantia": reparacion.fecha_fin_garantia.isoformat() if reparacion.fecha_fin_garantia else None,
         "motivo_no_reparable": reparacion.motivo_no_reparable if reparacion.estado_actual == "no_reparable" else None,
         "enlace_whatsapp_negocio": _enlace_whatsapp_negocio(negocio.telefono, reparacion.numero_orden),
+        "presupuesto": {
+            "importe": float(reparacion.presupuesto_importe),
+            "descripcion": reparacion.presupuesto_descripcion,
+            "estado": reparacion.presupuesto_estado,
+        } if reparacion.presupuesto_importe is not None else None,
     }
 
 
@@ -83,4 +95,38 @@ def buscar_por_numero_y_dato():
     if not (coincide_nif or coincide_telefono):
         return jsonify({"error": MENSAJE_NO_ENCONTRADO}), 404
 
+    return jsonify(_respuesta_seguimiento(reparacion))
+
+
+@seguimiento_bp.post("/<token>/presupuesto/firmar")
+def firmar_presupuesto(token):
+    """El cliente acepta o rechaza el presupuesto, con firma dibujada
+    en pantalla (o solo un clic de rechazo, que no necesita firma)."""
+    reparacion = Reparacion.query.filter_by(token_seguimiento=token).first()
+    if not reparacion:
+        return jsonify({"error": "No se encontró ninguna reparación con ese enlace"}), 404
+    if reparacion.presupuesto_importe is None:
+        return jsonify({"error": "Esta reparación no tiene ningún presupuesto pendiente"}), 400
+
+    data = request.get_json() or {}
+    aceptado = data.get("aceptado")
+    if aceptado is None:
+        return jsonify({"error": "Falta indicar si se acepta o rechaza"}), 400
+
+    reparacion.presupuesto_estado = "aceptado" if aceptado else "rechazado"
+
+    if aceptado:
+        firma_png = data.get("firma_png")
+        if not firma_png:
+            return jsonify({"error": "Falta la firma para aceptar el presupuesto"}), 400
+        nombre_archivo, _ = guardar_firma_png(firma_png, reparacion.id, "presupuesto")
+        firma = Firma(
+            reparacion_id=reparacion.id,
+            tipo="presupuesto",
+            nombre_firmante=data.get("nombre_firmante") or (reparacion.cliente.nombre if reparacion.cliente else None),
+            nombre_archivo=nombre_archivo,
+        )
+        db.session.add(firma)
+
+    db.session.commit()
     return jsonify(_respuesta_seguimiento(reparacion))

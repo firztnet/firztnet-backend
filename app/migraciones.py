@@ -17,6 +17,10 @@ COLUMNAS_NUEVAS = {
     ],
     "reparaciones": [
         ("token_seguimiento", "VARCHAR(40)"),
+        ("presupuesto_importe", "NUMERIC(10, 2)"),
+        ("presupuesto_descripcion", "TEXT"),
+        ("presupuesto_estado", "VARCHAR(20)"),
+        ("presupuesto_fecha", "DATETIME"),
     ],
 }
 

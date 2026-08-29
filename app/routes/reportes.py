@@ -95,3 +95,34 @@ def contador_reparaciones():
             "no_reparables": no_reparables,
         }
     )
+
+
+@reportes_bp.get("/tendencia")
+def tendencia_semanal():
+    """Ingresos, gastos y nº de reparaciones recibidas de cada uno de
+    los últimos 7 días (incluyendo hoy) — para la gráfica del panel."""
+    hoy = datetime.utcnow().date()
+    dias = []
+    for i in range(6, -1, -1):
+        dia = hoy - timedelta(days=i)
+        inicio = datetime.combine(dia, datetime.min.time())
+        fin = inicio + timedelta(days=1)
+
+        query = MovimientoFinanciero.query.filter(
+            MovimientoFinanciero.fecha >= inicio, MovimientoFinanciero.fecha < fin
+        )
+        ingresos, gastos = _balance(query)
+
+        recibidas = Reparacion.query.filter(
+            Reparacion.fecha_recepcion >= inicio, Reparacion.fecha_recepcion < fin
+        ).count()
+
+        dias.append({
+            "fecha": dia.isoformat(),
+            "dia_semana": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"][dia.weekday()],
+            "ingresos": ingresos,
+            "gastos": gastos,
+            "reparaciones_recibidas": recibidas,
+        })
+
+    return jsonify(dias)

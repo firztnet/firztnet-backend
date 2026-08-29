@@ -8,6 +8,7 @@ disco puede desaparecer si el contenedor se reinicia. Al regenerarlo
 al vuelo desde los datos de la reparación, nunca depende de nada
 guardado previamente."""
 import io
+import os
 from datetime import datetime
 from reportlab.lib.pagesizes import A5
 from reportlab.lib.units import mm
@@ -281,6 +282,83 @@ def generar_pdf_factura(factura, reparacion, cliente, negocio):
     total_linea(f"IVA ({float(factura.iva_pct):.0f}%)", f"{float(factura.iva_importe):,.2f} €")
     y -= 1.5 * mm
     total_linea("TOTAL", f"{float(factura.total):,.2f} €", negrita=True)
+
+    contacto = " · ".join(filter(None, [negocio.direccion, negocio.telefono, negocio.email]))
+    if contacto:
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 7)
+        c.drawString(margen, 10 * mm, contacto[:100])
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+
+def generar_pdf_presupuesto(reparacion, negocio, firma_ruta=None):
+    """Presupuesto formal de la reparación, con espacio para firma de
+    aceptación. Si ya está firmado (firma_ruta), la incrusta."""
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A5)
+    ancho, alto = A5
+    margen = 14 * mm
+    _dibujar_cabecera(c, negocio, ancho, alto, margen)
+
+    y = alto - 32 * mm
+    c.setFillColor(GRIS_TEXTO)
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(margen, y, "Presupuesto")
+    y -= 6 * mm
+    c.setFont("Helvetica", 9)
+    c.setFillColor(AZUL)
+    c.drawString(margen, y, f"Nº de orden: {reparacion.numero_orden}")
+    y -= 10 * mm
+
+    def linea(etiqueta, valor):
+        nonlocal y
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8.5)
+        c.drawString(margen, y, etiqueta)
+        c.setFillColor(GRIS_TEXTO)
+        c.setFont("Helvetica-Bold", 9.5)
+        c.drawString(margen, y - 4.2 * mm, str(valor)[:60])
+        y -= 11 * mm
+
+    linea("Cliente", reparacion.cliente.nombre if reparacion.cliente else "—")
+    linea("Equipo", reparacion.equipo)
+    linea("Descripción", reparacion.presupuesto_descripcion or f"Reparación de {reparacion.equipo}")
+
+    y -= 3 * mm
+    c.setStrokeColor(GRIS_CLARO)
+    c.line(margen, y, ancho - margen, y)
+    y -= 10 * mm
+
+    c.setFont("Helvetica-Bold", 13)
+    c.setFillColor(AZUL)
+    c.drawString(margen, y, "IMPORTE PRESUPUESTADO")
+    c.drawRightString(ancho - margen, y, f"{float(reparacion.presupuesto_importe or 0):,.2f} €")
+    y -= 12 * mm
+
+    c.setFillColor(GRIS_CLARO)
+    c.setFont("Helvetica", 7.5)
+    c.drawString(margen, y, "Presupuesto orientativo. El importe final puede variar si aparecen")
+    y -= 3.8 * mm
+    c.drawString(margen, y, "incidencias adicionales durante la reparación, que se te comunicarán antes.")
+    y -= 14 * mm
+
+    if firma_ruta and os.path.exists(firma_ruta):
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8)
+        c.drawString(margen, y, "Firmado y aceptado por el cliente:")
+        y -= 26 * mm
+        try:
+            c.drawImage(firma_ruta, margen, y, width=60 * mm, height=22 * mm, preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+    else:
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8)
+        c.drawString(margen, y, "Pendiente de aceptación por el cliente.")
 
     contacto = " · ".join(filter(None, [negocio.direccion, negocio.telefono, negocio.email]))
     if contacto:

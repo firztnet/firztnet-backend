@@ -98,6 +98,12 @@ class Reparacion(db.Model):
     # que es correlativo) para la página pública de seguimiento del cliente.
     token_seguimiento = db.Column(db.String(40), unique=True, default=lambda: secrets.token_hex(8))
 
+    # Presupuesto: uno activo por reparación. estado: pendiente / aceptado / rechazado
+    presupuesto_importe = db.Column(db.Numeric(10, 2))
+    presupuesto_descripcion = db.Column(db.Text)
+    presupuesto_estado = db.Column(db.String(20))
+    presupuesto_fecha = db.Column(db.DateTime)
+
     repuestos_usados = db.relationship("ReparacionRepuesto", backref="reparacion", lazy=True)
     movimientos = db.relationship("MovimientoFinanciero", backref="reparacion", lazy=True)
     comprobantes = db.relationship("Comprobante", backref="reparacion", lazy=True)
@@ -127,6 +133,10 @@ class Reparacion(db.Model):
             "fecha_entrega": self.fecha_entrega.isoformat() if self.fecha_entrega else None,
             "fecha_fin_garantia": self.fecha_fin_garantia.isoformat() if self.fecha_fin_garantia else None,
             "token_seguimiento": self.token_seguimiento,
+            "presupuesto_importe": float(self.presupuesto_importe) if self.presupuesto_importe is not None else None,
+            "presupuesto_descripcion": self.presupuesto_descripcion,
+            "presupuesto_estado": self.presupuesto_estado,
+            "presupuesto_fecha": self.presupuesto_fecha.isoformat() if self.presupuesto_fecha else None,
         }
 
 
@@ -240,6 +250,30 @@ class Factura(db.Model):
             "iva_importe": float(self.iva_importe),
             "total": float(self.total),
             "fecha_emision": self.fecha_emision.isoformat() if self.fecha_emision else None,
+        }
+
+
+class Firma(db.Model):
+    """Firma digital (dibujada en pantalla) para dos usos: aceptar/rechazar
+    un presupuesto a distancia, o confirmar la recogida del equipo en el
+    mostrador. El dibujo se guarda como imagen en disco (igual que las
+    fotos), aquí solo la referencia."""
+    __tablename__ = "firmas"
+    id = db.Column(db.Integer, primary_key=True)
+    reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=False)
+    tipo = db.Column(db.String(20), nullable=False)  # 'presupuesto' o 'entrega'
+    nombre_firmante = db.Column(db.String(120))
+    nombre_archivo = db.Column(db.String(120), nullable=False)
+    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "reparacion_id": self.reparacion_id,
+            "tipo": self.tipo,
+            "nombre_firmante": self.nombre_firmante,
+            "nombre_archivo": self.nombre_archivo,
+            "fecha": self.fecha.isoformat() if self.fecha else None,
         }
 
 
