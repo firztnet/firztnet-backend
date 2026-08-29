@@ -55,6 +55,9 @@ def crear_reparacion():
         numero_orden=generar_numero_orden(),
         cliente_id=data["cliente_id"],
         equipo=data["equipo"],
+        marca=data.get("marca"),
+        modelo=data.get("modelo"),
+        urgente=bool(data.get("urgente", False)),
         accesorios_entregados=data.get("accesorios_entregados"),
         problema_reportado=data.get("problema_reportado"),
         estado_entrada=data.get("estado_entrada"),
@@ -84,6 +87,12 @@ def editar_reparacion(rep_id):
     data = request.get_json() or {}
     if "fecha_estimada" in data:
         reparacion.fecha_estimada = datetime.fromisoformat(data["fecha_estimada"]) if data["fecha_estimada"] else None
+    if "urgente" in data:
+        reparacion.urgente = bool(data["urgente"])
+    if "marca" in data:
+        reparacion.marca = data["marca"]
+    if "modelo" in data:
+        reparacion.modelo = data["modelo"]
     db.session.commit()
     return jsonify(reparacion.to_dict())
 

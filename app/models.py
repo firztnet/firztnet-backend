@@ -82,6 +82,9 @@ class Reparacion(db.Model):
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
 
     equipo = db.Column(db.String(120), nullable=False)
+    marca = db.Column(db.String(60))
+    modelo = db.Column(db.String(60))
+    urgente = db.Column(db.Boolean, default=False)
     accesorios_entregados = db.Column(db.String(255))
     problema_reportado = db.Column(db.Text)
     estado_entrada = db.Column(db.Text)  # rayones, golpes, etc. al recibir
@@ -123,6 +126,9 @@ class Reparacion(db.Model):
             "numero_orden": self.numero_orden,
             "cliente": self.cliente.to_dict() if self.cliente else None,
             "equipo": self.equipo,
+            "marca": self.marca,
+            "modelo": self.modelo,
+            "urgente": bool(self.urgente),
             "accesorios_entregados": self.accesorios_entregados,
             "problema_reportado": self.problema_reportado,
             "estado_entrada": self.estado_entrada,

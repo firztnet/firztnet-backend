@@ -21,6 +21,9 @@ COLUMNAS_NUEVAS = {
         ("presupuesto_descripcion", "TEXT"),
         ("presupuesto_estado", "VARCHAR(20)"),
         ("presupuesto_fecha", "DATETIME"),
+        ("marca", "VARCHAR(60)"),
+        ("modelo", "VARCHAR(60)"),
+        ("urgente", "BOOLEAN DEFAULT 0"),
     ],
 }
 
