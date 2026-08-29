@@ -183,6 +183,27 @@ class MovimientoFinanciero(db.Model):
         }
 
 
+class PlantillaMensaje(db.Model):
+    """Mensajes predefinidos para casos comunes (equipo listo, esperando
+    repuesto, presupuesto pendiente...). Si `estado_disparador` coincide
+    con un estado del kanban, se usa automáticamente al mover una
+    reparación a ese estado — dejando el aviso ya redactado y listo
+    para enviar con un clic, sin escribirlo cada vez."""
+    __tablename__ = "plantillas_mensaje"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(80), nullable=False)
+    texto = db.Column(db.Text, nullable=False)
+    estado_disparador = db.Column(db.String(30), db.ForeignKey("estados.codigo"), nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "nombre": self.nombre,
+            "texto": self.texto,
+            "estado_disparador": self.estado_disparador,
+        }
+
+
 class ConfiguracionNegocio(db.Model):
     """Fila única (id=1) con los datos del negocio que aparecen en los
     comprobantes: nombre, dirección, teléfono, email. Editable desde el

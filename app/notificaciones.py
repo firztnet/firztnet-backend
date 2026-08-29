@@ -92,3 +92,49 @@ def generar_enlace_whatsapp(reparacion, tipo):
         telefono = "34" + telefono  # prefijo España si no lo trae
     texto = urllib.parse.quote(_texto_mensaje(reparacion, tipo))
     return f"https://wa.me/{telefono}?text={texto}"
+
+
+def _telefono_whatsapp(telefono):
+    if not telefono:
+        return None
+    digitos = "".join(ch for ch in telefono if ch.isdigit())
+    if not digitos.startswith("34") and len(digitos) == 9:
+        digitos = "34" + digitos
+    return digitos
+
+
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://firztnet-preview.vercel.app")
+
+
+def renderizar_plantilla(texto_plantilla, reparacion):
+    """Rellena los huecos {cliente}, {equipo}, {numero_orden}, {estado},
+    {fecha_estimada}, {garantia}, {enlace_seguimiento} de una plantilla
+    con los datos reales de la reparación. {enlace_seguimiento} lleva al
+    cliente a la página donde ve el presupuesto y puede firmarlo. Si
+    algún hueco no aplica, lo deja vacío en vez de romper."""
+    ETIQUETAS_ESTADO = {
+        "recibido": "Recibido", "diagnostico": "En diagnóstico", "reparacion": "En reparación",
+        "listo": "Listo para recoger", "entregado": "Entregado", "no_reparable": "No reparable",
+    }
+    valores = {
+        "cliente": reparacion.cliente.nombre.split(" ")[0] if reparacion.cliente else "",
+        "equipo": reparacion.equipo or "",
+        "numero_orden": reparacion.numero_orden or "",
+        "estado": ETIQUETAS_ESTADO.get(reparacion.estado_actual, reparacion.estado_actual or ""),
+        "fecha_estimada": reparacion.fecha_estimada.strftime("%d/%m/%Y") if reparacion.fecha_estimada else "",
+        "garantia": reparacion.fecha_fin_garantia.strftime("%d/%m/%Y") if reparacion.fecha_fin_garantia else "",
+        "enlace_seguimiento": f"{FRONTEND_URL}/seguimiento?token={reparacion.token_seguimiento}",
+    }
+    try:
+        return texto_plantilla.format(**valores)
+    except (KeyError, IndexError):
+        return texto_plantilla  # si la plantilla tiene un hueco mal escrito, mejor mandar el texto tal cual
+
+
+def generar_enlace_whatsapp_texto(reparacion, texto):
+    """Igual que generar_enlace_whatsapp, pero a partir de un texto ya
+    redactado (de una plantilla), no de uno de los tipos fijos."""
+    telefono = _telefono_whatsapp(reparacion.cliente.telefono if reparacion.cliente else None)
+    if not telefono:
+        return None
+    return f"https://wa.me/{telefono}?text={urllib.parse.quote(texto)}"

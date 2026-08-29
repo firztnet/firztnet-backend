@@ -1,8 +1,9 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from app import db
-from app.models import Reparacion, Cliente, ReparacionRepuesto, Repuesto, Firma
+from app.models import Reparacion, Cliente, ReparacionRepuesto, Repuesto, Firma, PlantillaMensaje
 from app.firmas import guardar_firma_png
+from app.notificaciones import renderizar_plantilla, generar_enlace_whatsapp_texto
 
 reparaciones_bp = Blueprint("reparaciones", __name__)
 
@@ -107,7 +108,21 @@ def cambiar_estado(rep_id):
         reparacion.estado_actual = nuevo_estado
 
     db.session.commit()
-    return jsonify(reparacion.to_dict())
+
+    respuesta = reparacion.to_dict()
+
+    # Si hay una plantilla configurada para este estado, se devuelve ya
+    # redactada y con el enlace de WhatsApp listo — sin que el técnico
+    # tenga que escribir nada.
+    plantilla = PlantillaMensaje.query.filter_by(estado_disparador=nuevo_estado).first()
+    if plantilla:
+        texto = renderizar_plantilla(plantilla.texto, reparacion)
+        respuesta["aviso"] = {
+            "texto": texto,
+            "enlace_whatsapp": generar_enlace_whatsapp_texto(reparacion, texto),
+        }
+
+    return jsonify(respuesta)
 
 
 @reparaciones_bp.post("/<int:rep_id>/repuestos")

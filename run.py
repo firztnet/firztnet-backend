@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import Estado, Cliente, Reparacion
+from app.models import Estado, Cliente, Reparacion, PlantillaMensaje
 from app.migraciones import aplicar_migraciones
 import os
 import secrets
@@ -13,6 +13,13 @@ ESTADOS_INICIALES = [
     ("listo", "Listo para entrega", 4),
     ("entregado", "Entregado", 5),
     ("no_reparable", "No reparable", 6),
+]
+
+PLANTILLAS_INICIALES = [
+    ("Equipo listo para retirar", "Hola {cliente}, tu equipo ({equipo}) ya está listo para recoger. ¡Te esperamos!", "listo"),
+    ("Esperando repuesto", "Hola {cliente}, tu equipo ({equipo}, orden {numero_orden}) está a la espera de un repuesto. Te avisaremos en cuanto llegue.", None),
+    ("Diagnóstico y firma", "Hola {cliente}, ya tenemos el diagnóstico de tu {equipo}. Revisa y aprueba el presupuesto aquí: {enlace_seguimiento}", "diagnostico"),
+    ("Presupuesto pendiente de aprobación", "Hola {cliente}, te hemos preparado el presupuesto de tu equipo ({equipo}). Revísalo y fírmalo aquí: {enlace_seguimiento}", None),
 ]
 
 # Se ejecuta siempre al importar el módulo (tanto con `python run.py` en
@@ -40,6 +47,11 @@ with app.app_context():
     for reparacion in sin_token:
         reparacion.token_seguimiento = secrets.token_hex(8)
     if sin_token:
+        db.session.commit()
+
+    if PlantillaMensaje.query.count() == 0:
+        for nombre, texto, estado_disparador in PLANTILLAS_INICIALES:
+            db.session.add(PlantillaMensaje(nombre=nombre, texto=texto, estado_disparador=estado_disparador))
         db.session.commit()
 
 if __name__ == "__main__":
