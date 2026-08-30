@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func
 from flask import Blueprint, jsonify
 from app import db
-from app.models import MovimientoFinanciero, Reparacion
+from app.models import MovimientoFinanciero, Reparacion, Cliente
 
 reportes_bp = Blueprint("reportes", __name__)
 
@@ -34,6 +34,9 @@ def reporte_diario():
     entregados_hoy = Reparacion.query.filter(
         Reparacion.fecha_entrega >= inicio, Reparacion.fecha_entrega < fin
     ).count()
+    nuevos_clientes_hoy = Cliente.query.filter(
+        Cliente.creado_en >= inicio, Cliente.creado_en < fin
+    ).count()
 
     return jsonify(
         {
@@ -43,6 +46,7 @@ def reporte_diario():
             "balance_neto": ingresos - gastos,
             "equipos_recibidos": recibidos_hoy,
             "equipos_entregados": entregados_hoy,
+            "nuevos_clientes": nuevos_clientes_hoy,
         }
     )
 

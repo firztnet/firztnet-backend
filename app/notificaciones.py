@@ -67,6 +67,10 @@ def enviar_email_comprobante(reparacion, tipo, pdf_buffer, nombre_archivo):
         headers={
             "Authorization": f"Bearer {RESEND_API_KEY}",
             "Content-Type": "application/json",
+            # Sin esto, algunas peticiones automáticas (como las de
+            # Python) quedan bloqueadas por la protección anti-bots de
+            # Cloudflare delante de la API de Resend (error 1010).
+            "User-Agent": "Firztnet/1.0 (+https://firztnet.es)",
         },
         method="POST",
     )
