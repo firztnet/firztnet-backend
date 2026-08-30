@@ -19,7 +19,7 @@ ESTADOS_INICIALES = [
 ]
 
 PLANTILLAS_INICIALES = [
-    ("Equipo listo para retirar", "Hola {cliente}, tu equipo ({equipo}) ya está listo para recoger. ¡Te esperamos!", "listo"),
+    ("Equipo listo para retirar", "Hola {cliente}, tu equipo {equipo} está listo. Total: {monto}€. Horario de atención: 9 a 18h.", "listo"),
     ("Esperando repuesto", "Hola {cliente}, tu equipo ({equipo}, orden {numero_orden}) está a la espera de un repuesto. Te avisaremos en cuanto llegue.", None),
     ("Diagnóstico y firma", "Hola {cliente}, ya tenemos el diagnóstico de tu {equipo}. Revisa y aprueba el presupuesto aquí: {enlace_seguimiento}", "diagnostico"),
     ("Presupuesto pendiente de aprobación", "Hola {cliente}, te hemos preparado el presupuesto de tu equipo ({equipo}). Revísalo y fírmalo aquí: {enlace_seguimiento}", None),
