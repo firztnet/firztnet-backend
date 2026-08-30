@@ -17,13 +17,7 @@ def crear_plantilla():
     if not data.get("nombre") or not data.get("texto"):
         return jsonify({"error": "Nombre y texto son obligatorios"}), 400
 
-    # Si esta plantilla se marca como disparador de un estado, quita esa
-    # marca de cualquier otra que la tuviera (solo una activa por estado).
-    estado_disparador = data.get("estado_disparador") or None
-    if estado_disparador:
-        PlantillaMensaje.query.filter_by(estado_disparador=estado_disparador).update({"estado_disparador": None})
-
-    plantilla = PlantillaMensaje(nombre=data["nombre"], texto=data["texto"], estado_disparador=estado_disparador)
+    plantilla = PlantillaMensaje(nombre=data["nombre"], texto=data["texto"], estado_disparador=data.get("estado_disparador") or None)
     db.session.add(plantilla)
     db.session.commit()
     return jsonify(plantilla.to_dict()), 201
@@ -35,12 +29,7 @@ def editar_plantilla(plantilla_id):
     data = request.get_json() or {}
 
     if "estado_disparador" in data:
-        nuevo_estado = data["estado_disparador"] or None
-        if nuevo_estado:
-            PlantillaMensaje.query.filter(
-                PlantillaMensaje.estado_disparador == nuevo_estado, PlantillaMensaje.id != plantilla_id
-            ).update({"estado_disparador": None})
-        plantilla.estado_disparador = nuevo_estado
+        plantilla.estado_disparador = data["estado_disparador"] or None
 
     plantilla.nombre = data.get("nombre", plantilla.nombre)
     plantilla.texto = data.get("texto", plantilla.texto)

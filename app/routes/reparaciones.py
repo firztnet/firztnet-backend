@@ -133,13 +133,16 @@ def cambiar_estado(rep_id):
     # Si hay una plantilla configurada para este estado, se devuelve ya
     # redactada y con el enlace de WhatsApp listo — sin que el técnico
     # tenga que escribir nada.
-    plantilla = PlantillaMensaje.query.filter_by(estado_disparador=nuevo_estado).first()
-    if plantilla:
-        texto = renderizar_plantilla(plantilla.texto, reparacion)
-        respuesta["aviso"] = {
-            "texto": texto,
-            "enlace_whatsapp": generar_enlace_whatsapp_texto(reparacion, texto),
-        }
+    plantillas_disparadas = PlantillaMensaje.query.filter_by(estado_disparador=nuevo_estado).all()
+    if plantillas_disparadas:
+        respuesta["avisos"] = []
+        for plantilla in plantillas_disparadas:
+            texto = renderizar_plantilla(plantilla.texto, reparacion)
+            respuesta["avisos"].append({
+                "nombre": plantilla.nombre,
+                "texto": texto,
+                "enlace_whatsapp": generar_enlace_whatsapp_texto(reparacion, texto),
+            })
 
     return jsonify(respuesta)
 

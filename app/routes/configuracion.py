@@ -30,5 +30,12 @@ def actualizar_configuracion():
             config.suplemento_desplazamiento = float(data["suplemento_desplazamiento"])
         except (TypeError, ValueError):
             pass
+    if "tarifa_hora" in data:
+        try:
+            config.tarifa_hora = float(data["tarifa_hora"])
+        except (TypeError, ValueError):
+            pass
+    if "enlace_resenas_google" in data:
+        config.enlace_resenas_google = data["enlace_resenas_google"]
     db.session.commit()
     return jsonify(config.to_dict())

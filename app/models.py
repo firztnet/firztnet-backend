@@ -237,6 +237,7 @@ class ConfiguracionNegocio(db.Model):
     iva_pct = db.Column(db.Numeric(5, 2), default=21)  # % de IVA que aplicas
     suplemento_desplazamiento = db.Column(db.Numeric(10, 2), default=20)  # € por servicio a domicilio
     tarifa_hora = db.Column(db.Numeric(10, 2), default=25)  # € por hora de mano de obra
+    enlace_resenas_google = db.Column(db.String(300))  # enlace directo a "dejar una reseña" en tu ficha de Google
 
     def to_dict(self):
         return {
@@ -249,6 +250,7 @@ class ConfiguracionNegocio(db.Model):
             "iva_pct": float(self.iva_pct if self.iva_pct is not None else 21),
             "suplemento_desplazamiento": float(self.suplemento_desplazamiento if self.suplemento_desplazamiento is not None else 20),
             "tarifa_hora": float(self.tarifa_hora if self.tarifa_hora is not None else 25),
+            "enlace_resenas_google": self.enlace_resenas_google,
         }
 
     @staticmethod

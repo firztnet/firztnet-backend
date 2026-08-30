@@ -16,6 +16,7 @@ COLUMNAS_NUEVAS = {
         ("iva_pct", "NUMERIC(5, 2) DEFAULT 21"),
         ("suplemento_desplazamiento", "NUMERIC(10, 2) DEFAULT 20"),
         ("tarifa_hora", "NUMERIC(10, 2) DEFAULT 25"),
+        ("enlace_resenas_google", "VARCHAR(300)"),
     ],
     "reparaciones": [
         ("token_seguimiento", "VARCHAR(40)"),

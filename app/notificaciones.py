@@ -112,14 +112,20 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://firztnet-preview.vercel.a
 
 def renderizar_plantilla(texto_plantilla, reparacion):
     """Rellena los huecos {cliente}, {equipo}, {numero_orden}, {estado},
-    {fecha_estimada}, {garantia}, {enlace_seguimiento} de una plantilla
-    con los datos reales de la reparación. {enlace_seguimiento} lleva al
-    cliente a la página donde ve el presupuesto y puede firmarlo. Si
-    algún hueco no aplica, lo deja vacío en vez de romper."""
+    {fecha_estimada}, {garantia}, {enlace_seguimiento}, {enlace_resena}
+    de una plantilla con los datos reales de la reparación.
+    {enlace_seguimiento} lleva al cliente a la página donde ve el
+    presupuesto y puede firmarlo. {enlace_resena} lleva a tu ficha de
+    Google para que deje una valoración. Si algún hueco no aplica, lo
+    deja vacío en vez de romper."""
+    from app.models import ConfiguracionNegocio  # import diferido: evita import circular
+
     ETIQUETAS_ESTADO = {
         "recibido": "Recibido", "diagnostico": "En diagnóstico", "reparacion": "En reparación",
         "listo": "Listo para recoger", "entregado": "Entregado", "no_reparable": "No reparable",
+        "contratado": "Contratado", "en_proceso": "En proceso", "completado": "Completado",
     }
+    negocio = ConfiguracionNegocio.obtener()
     valores = {
         "cliente": reparacion.cliente.nombre.split(" ")[0] if reparacion.cliente else "",
         "equipo": reparacion.equipo or "",
@@ -128,6 +134,7 @@ def renderizar_plantilla(texto_plantilla, reparacion):
         "fecha_estimada": reparacion.fecha_estimada.strftime("%d/%m/%Y") if reparacion.fecha_estimada else "",
         "garantia": reparacion.fecha_fin_garantia.strftime("%d/%m/%Y") if reparacion.fecha_fin_garantia else "",
         "enlace_seguimiento": f"{FRONTEND_URL}/seguimiento?token={reparacion.token_seguimiento}",
+        "enlace_resena": negocio.enlace_resenas_google or "",
     }
     try:
         return texto_plantilla.format(**valores)
