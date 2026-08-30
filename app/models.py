@@ -88,6 +88,7 @@ class Reparacion(db.Model):
     marca = db.Column(db.String(60))
     modelo = db.Column(db.String(60))
     urgente = db.Column(db.Boolean, default=False)
+    tecnico = db.Column(db.String(60))  # nombre del técnico responsable (sin login propio, de momento)
     accesorios_entregados = db.Column(db.String(255))
     problema_reportado = db.Column(db.Text)
     estado_entrada = db.Column(db.Text)  # rayones, golpes, etc. al recibir
@@ -141,6 +142,7 @@ class Reparacion(db.Model):
             "marca": self.marca,
             "modelo": self.modelo,
             "urgente": bool(self.urgente),
+            "tecnico": self.tecnico,
             "accesorios_entregados": self.accesorios_entregados,
             "problema_reportado": self.problema_reportado,
             "estado_entrada": self.estado_entrada,
@@ -155,6 +157,46 @@ class Reparacion(db.Model):
             "presupuesto_descripcion": self.presupuesto_descripcion,
             "presupuesto_estado": self.presupuesto_estado,
             "presupuesto_fecha": self.presupuesto_fecha.isoformat() if self.presupuesto_fecha else None,
+        }
+
+
+class RMA(db.Model):
+    """Devolución en garantía a un proveedor: pieza defectuosa que
+    envías a cambio/reembolso. Con nº de serie para poder rastrearla y
+    no perder el dinero si el proveedor tarda o se hace el despistado."""
+    __tablename__ = "rmas"
+    id = db.Column(db.Integer, primary_key=True)
+    repuesto_id = db.Column(db.Integer, db.ForeignKey("repuestos.id"), nullable=True)
+    proveedor_id = db.Column(db.Integer, db.ForeignKey("proveedores.id"), nullable=False)
+    reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=True)
+    numero_serie = db.Column(db.String(80))
+    motivo = db.Column(db.Text, nullable=False)
+    estado = db.Column(db.String(20), default="enviado")  # enviado, en_proceso, resuelto, rechazado
+    resultado = db.Column(db.String(200))  # ej. "Sustituida por unidad nueva", "Reembolso 25€"
+    importe_recuperado = db.Column(db.Numeric(10, 2))
+    fecha_envio = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_resolucion = db.Column(db.DateTime)
+
+    repuesto = db.relationship("Repuesto")
+    proveedor = db.relationship("Proveedor")
+    reparacion = db.relationship("Reparacion")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "repuesto_id": self.repuesto_id,
+            "repuesto": self.repuesto.to_dict() if self.repuesto else None,
+            "proveedor_id": self.proveedor_id,
+            "proveedor": self.proveedor.to_dict() if self.proveedor else None,
+            "reparacion_id": self.reparacion_id,
+            "reparacion_numero_orden": self.reparacion.numero_orden if self.reparacion else None,
+            "numero_serie": self.numero_serie,
+            "motivo": self.motivo,
+            "estado": self.estado,
+            "resultado": self.resultado,
+            "importe_recuperado": float(self.importe_recuperado) if self.importe_recuperado is not None else None,
+            "fecha_envio": self.fecha_envio.isoformat() if self.fecha_envio else None,
+            "fecha_resolucion": self.fecha_resolucion.isoformat() if self.fecha_resolucion else None,
         }
 
 
@@ -238,6 +280,7 @@ class ConfiguracionNegocio(db.Model):
     suplemento_desplazamiento = db.Column(db.Numeric(10, 2), default=20)  # € por servicio a domicilio
     tarifa_hora = db.Column(db.Numeric(10, 2), default=25)  # € por hora de mano de obra
     enlace_resenas_google = db.Column(db.String(300))  # enlace directo a "dejar una reseña" en tu ficha de Google
+    tecnicos = db.Column(db.String(300))  # nombres separados por coma, ej: "Carlos, Ana"
 
     def to_dict(self):
         return {
@@ -251,6 +294,7 @@ class ConfiguracionNegocio(db.Model):
             "suplemento_desplazamiento": float(self.suplemento_desplazamiento if self.suplemento_desplazamiento is not None else 20),
             "tarifa_hora": float(self.tarifa_hora if self.tarifa_hora is not None else 25),
             "enlace_resenas_google": self.enlace_resenas_google,
+            "tecnicos": [t.strip() for t in (self.tecnicos or "").split(",") if t.strip()],
         }
 
     @staticmethod

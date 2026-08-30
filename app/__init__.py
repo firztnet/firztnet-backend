@@ -30,6 +30,7 @@ def create_app():
     from app.routes.checklist import checklist_bp
     from app.routes.presupuestos import presupuestos_bp
     from app.routes.plantillas import plantillas_bp
+    from app.routes.rma import rma_bp
     from app.routes.sesiones import sesiones_bp
     from app.routes.conocimiento import conocimiento_bp
     from app.routes.recordatorios import recordatorios_bp
@@ -51,6 +52,7 @@ def create_app():
     app.register_blueprint(checklist_bp, url_prefix="/api/checklist")
     app.register_blueprint(presupuestos_bp, url_prefix="/api")
     app.register_blueprint(plantillas_bp, url_prefix="/api/plantillas")
+    app.register_blueprint(rma_bp, url_prefix="/api/rma")
     app.register_blueprint(sesiones_bp, url_prefix="/api")
     app.register_blueprint(conocimiento_bp, url_prefix="/api/conocimiento")
     app.register_blueprint(recordatorios_bp, url_prefix="/api/recordatorios")

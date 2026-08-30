@@ -1,8 +1,11 @@
+import calendar
+import csv
+import io
 from datetime import datetime, timedelta
 from sqlalchemy import func
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request, Response
 from app import db
-from app.models import MovimientoFinanciero, Reparacion, Cliente
+from app.models import MovimientoFinanciero, Reparacion, Cliente, Factura
 
 reportes_bp = Blueprint("reportes", __name__)
 
@@ -130,3 +133,114 @@ def tendencia_semanal():
         })
 
     return jsonify(dias)
+
+
+@reportes_bp.get("/exportar")
+def exportar_mes():
+    """CSV listo para Excel/tu gestoría: movimientos y facturas del mes
+    indicado (por defecto, el mes actual). Usa ?mes=2026-08."""
+    mes_str = request.args.get("mes")
+    if mes_str:
+        anio, mes = map(int, mes_str.split("-"))
+    else:
+        hoy = datetime.utcnow()
+        anio, mes = hoy.year, hoy.month
+
+    inicio = datetime(anio, mes, 1)
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    fin = datetime(anio, mes, ultimo_dia, 23, 59, 59)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";")  # ; para que Excel en español lo abra bien
+
+    writer.writerow([f"Resumen contable — {mes:02d}/{anio}"])
+    writer.writerow([])
+
+    writer.writerow(["MOVIMIENTOS"])
+    writer.writerow(["Fecha", "Tipo", "Concepto", "Método de pago", "Importe (€)", "Nº orden asociado"])
+    movimientos = (
+        MovimientoFinanciero.query.filter(MovimientoFinanciero.fecha >= inicio, MovimientoFinanciero.fecha <= fin)
+        .order_by(MovimientoFinanciero.fecha)
+        .all()
+    )
+    total_ingresos = total_gastos = 0
+    for m in movimientos:
+        writer.writerow([
+            m.fecha.strftime("%d/%m/%Y %H:%M"),
+            "Ingreso" if m.tipo == "ingreso" else "Gasto",
+            m.concepto or "",
+            m.metodo_pago or "",
+            f"{float(m.monto):.2f}".replace(".", ","),
+            m.reparacion.numero_orden if m.reparacion else "",
+        ])
+        if m.tipo == "ingreso":
+            total_ingresos += float(m.monto)
+        else:
+            total_gastos += float(m.monto)
+
+    writer.writerow([])
+    writer.writerow(["Total ingresos", f"{total_ingresos:.2f}".replace(".", ",")])
+    writer.writerow(["Total gastos", f"{total_gastos:.2f}".replace(".", ",")])
+    writer.writerow(["Balance neto", f"{(total_ingresos - total_gastos):.2f}".replace(".", ",")])
+    writer.writerow([])
+
+    writer.writerow(["FACTURAS EMITIDAS"])
+    writer.writerow(["Nº factura", "Fecha", "Cliente", "NIF cliente", "Base imponible (€)", "IVA (%)", "IVA (€)", "Total (€)"])
+    facturas = Factura.query.filter(Factura.fecha_emision >= inicio, Factura.fecha_emision <= fin).order_by(Factura.fecha_emision).all()
+    for f in facturas:
+        writer.writerow([
+            f.numero,
+            f.fecha_emision.strftime("%d/%m/%Y"),
+            f.cliente.nombre if f.cliente else "",
+            f.cliente.nif if f.cliente else "",
+            f"{float(f.base_imponible):.2f}".replace(".", ","),
+            f"{float(f.iva_pct):.0f}",
+            f"{float(f.iva_importe):.2f}".replace(".", ","),
+            f"{float(f.total):.2f}".replace(".", ","),
+        ])
+
+    contenido = "\ufeff" + buffer.getvalue()  # BOM para que Excel detecte bien los acentos
+    return Response(
+        contenido,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=resumen_{anio}-{mes:02d}.csv"},
+    )
+
+
+@reportes_bp.get("/rendimiento")
+def rendimiento_tecnicos():
+    """Por técnico: cuántos trabajos completó (entregado/completado) y
+    el tiempo medio desde que se recibió hasta que se entregó. Solo
+    cuenta trabajos que tengan técnico asignado."""
+    desde = request.args.get("desde")
+    hasta = request.args.get("hasta")
+
+    query = Reparacion.query.filter(
+        Reparacion.tecnico.isnot(None),
+        Reparacion.tecnico != "",
+        Reparacion.estado_actual.in_(["entregado", "completado"]),
+        Reparacion.fecha_entrega.isnot(None),
+    )
+    if desde:
+        query = query.filter(Reparacion.fecha_entrega >= datetime.fromisoformat(desde))
+    if hasta:
+        query = query.filter(Reparacion.fecha_entrega <= datetime.fromisoformat(hasta))
+
+    por_tecnico = {}
+    for rep in query.all():
+        stats = por_tecnico.setdefault(rep.tecnico, {"tecnico": rep.tecnico, "completados": 0, "suma_horas": 0.0})
+        stats["completados"] += 1
+        if rep.fecha_recepcion:
+            stats["suma_horas"] += (rep.fecha_entrega - rep.fecha_recepcion).total_seconds() / 3600
+
+    resultado = []
+    for stats in por_tecnico.values():
+        promedio_horas = stats["suma_horas"] / stats["completados"] if stats["completados"] else 0
+        resultado.append({
+            "tecnico": stats["tecnico"],
+            "completados": stats["completados"],
+            "tiempo_promedio_horas": round(promedio_horas, 1),
+        })
+
+    resultado.sort(key=lambda r: r["completados"], reverse=True)
+    return jsonify(resultado)

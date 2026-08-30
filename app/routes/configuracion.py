@@ -37,5 +37,9 @@ def actualizar_configuracion():
             pass
     if "enlace_resenas_google" in data:
         config.enlace_resenas_google = data["enlace_resenas_google"]
+    if "tecnicos" in data:
+        # Puede llegar como lista (["Carlos", "Ana"]) o como texto ya unido.
+        valor = data["tecnicos"]
+        config.tecnicos = ", ".join(valor) if isinstance(valor, list) else valor
     db.session.commit()
     return jsonify(config.to_dict())

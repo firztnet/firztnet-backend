@@ -17,6 +17,7 @@ COLUMNAS_NUEVAS = {
         ("suplemento_desplazamiento", "NUMERIC(10, 2) DEFAULT 20"),
         ("tarifa_hora", "NUMERIC(10, 2) DEFAULT 25"),
         ("enlace_resenas_google", "VARCHAR(300)"),
+        ("tecnicos", "VARCHAR(300)"),
     ],
     "reparaciones": [
         ("token_seguimiento", "VARCHAR(40)"),
@@ -27,6 +28,7 @@ COLUMNAS_NUEVAS = {
         ("marca", "VARCHAR(60)"),
         ("modelo", "VARCHAR(60)"),
         ("urgente", "BOOLEAN DEFAULT 0"),
+        ("tecnico", "VARCHAR(60)"),
         ("tipo_trabajo", "VARCHAR(20) DEFAULT 'taller'"),
         ("direccion_servicio", "VARCHAR(200)"),
         ("categoria", "VARCHAR(40)"),

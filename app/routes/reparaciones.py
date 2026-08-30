@@ -61,6 +61,7 @@ def crear_reparacion():
         marca=data.get("marca"),
         modelo=data.get("modelo"),
         urgente=bool(data.get("urgente", False)),
+        tecnico=data.get("tecnico"),
         accesorios_entregados=data.get("accesorios_entregados"),
         problema_reportado=data.get("problema_reportado"),
         estado_entrada=data.get("estado_entrada"),
@@ -101,6 +102,8 @@ def editar_reparacion(rep_id):
         reparacion.direccion_servicio = data["direccion_servicio"]
     if "categoria" in data:
         reparacion.categoria = data["categoria"]
+    if "tecnico" in data:
+        reparacion.tecnico = data["tecnico"]
     db.session.commit()
     return jsonify(reparacion.to_dict())
 
