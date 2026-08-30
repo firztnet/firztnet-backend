@@ -370,3 +370,106 @@ def generar_pdf_presupuesto(reparacion, negocio, firma_ruta=None):
     c.save()
     buffer.seek(0)
     return buffer
+
+
+def generar_pdf_parte_trabajo(reparacion, negocio, repuestos_usados, checklist, firma_ruta=None, coste_mano_obra=None, minutos_trabajados=None):
+    """Parte de trabajo de un servicio a domicilio: qué se hizo, qué
+    material se usó, cuánto tiempo llevó, y la firma de conformidad del
+    cliente — para dejárselo en el momento por WhatsApp."""
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A5)
+    ancho, alto = A5
+    margen = 14 * mm
+    _dibujar_cabecera(c, negocio, ancho, alto, margen)
+
+    y = alto - 32 * mm
+    c.setFillColor(GRIS_TEXTO)
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(margen, y, "Parte de trabajo")
+    y -= 6 * mm
+    c.setFont("Helvetica", 9)
+    c.setFillColor(AZUL)
+    c.drawString(margen, y, f"Nº de orden: {reparacion.numero_orden}")
+    y -= 9 * mm
+
+    def linea(etiqueta, valor):
+        nonlocal y
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8.5)
+        c.drawString(margen, y, etiqueta)
+        c.setFillColor(GRIS_TEXTO)
+        c.setFont("Helvetica-Bold", 9.5)
+        c.drawString(margen, y - 4.2 * mm, str(valor)[:65])
+        y -= 10 * mm
+
+    linea("Cliente", reparacion.cliente.nombre if reparacion.cliente else "—")
+    if reparacion.direccion_servicio:
+        linea("Dirección", reparacion.direccion_servicio)
+    linea("Servicio realizado", reparacion.equipo)
+    if reparacion.problema_reportado:
+        linea("Descripción del aviso", reparacion.problema_reportado)
+
+    # Checklist completado
+    completados = [i for i in checklist if i.get("completado")]
+    if completados:
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8.5)
+        c.drawString(margen, y, "Tareas realizadas")
+        y -= 5 * mm
+        c.setFillColor(GRIS_TEXTO)
+        c.setFont("Helvetica", 9)
+        for item in completados[:8]:
+            c.drawString(margen, y, f"✓ {item['texto'][:55]}")
+            y -= 5 * mm
+        y -= 3 * mm
+
+    # Material usado
+    if repuestos_usados:
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8.5)
+        c.drawString(margen, y, "Material usado")
+        y -= 5 * mm
+        c.setFillColor(GRIS_TEXTO)
+        c.setFont("Helvetica", 9)
+        for uso in repuestos_usados[:6]:
+            nombre = uso["repuesto"]["nombre"] if uso.get("repuesto") else "—"
+            c.drawString(margen, y, f"{uso['cantidad']}× {nombre[:45]}")
+            y -= 5 * mm
+        y -= 3 * mm
+
+    if minutos_trabajados is not None:
+        horas = minutos_trabajados / 60
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8.5)
+        c.drawString(margen, y, f"Tiempo en el servicio: {horas:.1f} h")
+        y -= 5 * mm
+        if coste_mano_obra is not None:
+            c.drawString(margen, y, f"Mano de obra: {coste_mano_obra:,.2f} €")
+            y -= 5 * mm
+        y -= 3 * mm
+
+    y -= 4 * mm
+    if firma_ruta and os.path.exists(firma_ruta):
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8)
+        c.drawString(margen, y, "Firmado y aceptado por el cliente:")
+        y -= 26 * mm
+        try:
+            c.drawImage(firma_ruta, margen, y, width=60 * mm, height=22 * mm, preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+    else:
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 8)
+        c.drawString(margen, y, "Pendiente de firma de conformidad.")
+
+    contacto = " · ".join(filter(None, [negocio.direccion, negocio.telefono, negocio.email]))
+    if contacto:
+        c.setFillColor(GRIS_CLARO)
+        c.setFont("Helvetica", 7)
+        c.drawString(margen, 10 * mm, contacto[:100])
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer

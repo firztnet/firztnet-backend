@@ -236,6 +236,7 @@ class ConfiguracionNegocio(db.Model):
     nif = db.Column(db.String(20))  # necesario para emitir facturas
     iva_pct = db.Column(db.Numeric(5, 2), default=21)  # % de IVA que aplicas
     suplemento_desplazamiento = db.Column(db.Numeric(10, 2), default=20)  # € por servicio a domicilio
+    tarifa_hora = db.Column(db.Numeric(10, 2), default=25)  # € por hora de mano de obra
 
     def to_dict(self):
         return {
@@ -247,6 +248,7 @@ class ConfiguracionNegocio(db.Model):
             "nif": self.nif,
             "iva_pct": float(self.iva_pct if self.iva_pct is not None else 21),
             "suplemento_desplazamiento": float(self.suplemento_desplazamiento if self.suplemento_desplazamiento is not None else 20),
+            "tarifa_hora": float(self.tarifa_hora if self.tarifa_hora is not None else 25),
         }
 
     @staticmethod
@@ -335,6 +337,74 @@ class ChecklistItem(db.Model):
             "texto": self.texto,
             "completado": bool(self.completado),
             "orden": self.orden,
+        }
+
+
+class SesionTrabajo(db.Model):
+    """Cada tramo de tiempo trabajado en una reparación (permite pausar
+    y reanudar): se abre al pulsar 'Iniciar servicio' y se cierra al
+    pulsar 'Finalizar servicio'. El coste de mano de obra sale de sumar
+    la duración de todas las sesiones cerradas de una reparación."""
+    __tablename__ = "sesiones_trabajo"
+    id = db.Column(db.Integer, primary_key=True)
+    reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=False)
+    inicio = db.Column(db.DateTime, default=datetime.utcnow)
+    fin = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "reparacion_id": self.reparacion_id,
+            "inicio": self.inicio.isoformat() if self.inicio else None,
+            "fin": self.fin.isoformat() if self.fin else None,
+        }
+
+
+class ArticuloConocimiento(db.Model):
+    """Base de conocimiento interna: trucos y configuraciones rápidas
+    (IPs por defecto de routers, comandos de reseteo, puertos de
+    impresoras...). Búsqueda simple por título/contenido/categoría."""
+    __tablename__ = "articulos_conocimiento"
+    id = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(160), nullable=False)
+    contenido = db.Column(db.Text, nullable=False)
+    categoria = db.Column(db.String(40))
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "titulo": self.titulo,
+            "contenido": self.contenido,
+            "categoria": self.categoria,
+            "creado_en": self.creado_en.isoformat() if self.creado_en else None,
+        }
+
+
+class Recordatorio(db.Model):
+    """Aviso de mantenimiento futuro (revisión de baterías SAI, limpieza
+    de filtros, etc.), normalmente programado al cerrar un servicio a
+    domicilio, para dentro de 6 o 12 meses."""
+    __tablename__ = "recordatorios"
+    id = db.Column(db.Integer, primary_key=True)
+    reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=True)
+    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
+    texto = db.Column(db.String(200), nullable=False)
+    fecha_programada = db.Column(db.Date, nullable=False)
+    cumplido = db.Column(db.Boolean, default=False)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+    cliente = db.relationship("Cliente")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "reparacion_id": self.reparacion_id,
+            "cliente_id": self.cliente_id,
+            "cliente": self.cliente.to_dict() if self.cliente else None,
+            "texto": self.texto,
+            "fecha_programada": self.fecha_programada.isoformat() if self.fecha_programada else None,
+            "cumplido": bool(self.cumplido),
         }
 
 
