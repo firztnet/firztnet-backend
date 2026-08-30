@@ -1,7 +1,7 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from app import db
-from app.models import Reparacion, Cliente, ReparacionRepuesto, Repuesto, Firma, PlantillaMensaje
+from app.models import Reparacion, Cliente, ReparacionRepuesto, Repuesto, Firma, PlantillaMensaje, ChecklistItem
 from app.firmas import guardar_firma_png
 from app.notificaciones import renderizar_plantilla, generar_enlace_whatsapp_texto
 
@@ -55,13 +55,16 @@ def crear_reparacion():
         numero_orden=generar_numero_orden(),
         cliente_id=data["cliente_id"],
         equipo=data["equipo"],
+        tipo_trabajo=data.get("tipo_trabajo", "taller"),
+        categoria=data.get("categoria"),
+        direccion_servicio=data.get("direccion_servicio"),
         marca=data.get("marca"),
         modelo=data.get("modelo"),
         urgente=bool(data.get("urgente", False)),
         accesorios_entregados=data.get("accesorios_entregados"),
         problema_reportado=data.get("problema_reportado"),
         estado_entrada=data.get("estado_entrada"),
-        estado_actual="recibido",
+        estado_actual="contratado" if data.get("tipo_trabajo") == "domicilio" else "recibido",
     )
     if data.get("fecha_estimada"):
         reparacion.fecha_estimada = datetime.fromisoformat(data["fecha_estimada"])
@@ -76,6 +79,7 @@ def obtener_reparacion(rep_id):
     data = reparacion.to_dict()
     data["repuestos_usados"] = [rr.to_dict() for rr in reparacion.repuestos_usados]
     data["movimientos"] = [m.to_dict() for m in reparacion.movimientos]
+    data["checklist"] = [c.to_dict() for c in ChecklistItem.query.filter_by(reparacion_id=rep_id).order_by(ChecklistItem.orden).all()]
     return jsonify(data)
 
 
@@ -93,6 +97,10 @@ def editar_reparacion(rep_id):
         reparacion.marca = data["marca"]
     if "modelo" in data:
         reparacion.modelo = data["modelo"]
+    if "direccion_servicio" in data:
+        reparacion.direccion_servicio = data["direccion_servicio"]
+    if "categoria" in data:
+        reparacion.categoria = data["categoria"]
     db.session.commit()
     return jsonify(reparacion.to_dict())
 
@@ -109,6 +117,8 @@ def cambiar_estado(rep_id):
 
     if nuevo_estado == "entregado":
         reparacion.marcar_entregada()
+    elif nuevo_estado == "completado":
+        reparacion.marcar_completada()
     elif nuevo_estado == "no_reparable":
         if not data.get("motivo"):
             return jsonify({"error": "Indica el motivo de no reparable"}), 400
@@ -183,3 +193,18 @@ def firmar_entrega(rep_id):
 def listar_firmas(rep_id):
     firmas = Firma.query.filter_by(reparacion_id=rep_id).order_by(Firma.fecha.desc()).all()
     return jsonify([f.to_dict() for f in firmas])
+
+
+@reparaciones_bp.post("/<int:rep_id>/checklist")
+def añadir_checklist(rep_id):
+    """Añade un punto a la hoja de trabajo de campo (ej. 'Router revisado')."""
+    Reparacion.query.get_or_404(rep_id)
+    data = request.get_json() or {}
+    if not data.get("texto"):
+        return jsonify({"error": "Falta el texto del punto"}), 400
+
+    ultimo_orden = db.session.query(db.func.max(ChecklistItem.orden)).filter_by(reparacion_id=rep_id).scalar() or 0
+    item = ChecklistItem(reparacion_id=rep_id, texto=data["texto"], orden=ultimo_orden + 1)
+    db.session.add(item)
+    db.session.commit()
+    return jsonify(item.to_dict()), 201

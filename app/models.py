@@ -82,6 +82,9 @@ class Reparacion(db.Model):
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
 
     equipo = db.Column(db.String(120), nullable=False)
+    tipo_trabajo = db.Column(db.String(20), default="taller")  # 'taller' o 'domicilio'
+    categoria = db.Column(db.String(40))  # redes, camaras, impresoras, mantenimiento_empresas...
+    direccion_servicio = db.Column(db.String(200))  # solo para 'domicilio'
     marca = db.Column(db.String(60))
     modelo = db.Column(db.String(60))
     urgente = db.Column(db.Boolean, default=False)
@@ -116,6 +119,12 @@ class Reparacion(db.Model):
         self.fecha_entrega = datetime.utcnow()
         self.fecha_fin_garantia = self.fecha_entrega + timedelta(days=30 * GARANTIA_MESES)
 
+    def marcar_completada(self):
+        """Equivalente a 'entregada', pero para servicios a domicilio."""
+        self.estado_actual = "completado"
+        self.fecha_entrega = datetime.utcnow()
+        self.fecha_fin_garantia = self.fecha_entrega + timedelta(days=30 * GARANTIA_MESES)
+
     def marcar_no_reparable(self, motivo):
         self.estado_actual = "no_reparable"
         self.motivo_no_reparable = motivo
@@ -126,6 +135,9 @@ class Reparacion(db.Model):
             "numero_orden": self.numero_orden,
             "cliente": self.cliente.to_dict() if self.cliente else None,
             "equipo": self.equipo,
+            "tipo_trabajo": self.tipo_trabajo or "taller",
+            "categoria": self.categoria,
+            "direccion_servicio": self.direccion_servicio,
             "marca": self.marca,
             "modelo": self.modelo,
             "urgente": bool(self.urgente),
@@ -223,6 +235,7 @@ class ConfiguracionNegocio(db.Model):
     email = db.Column(db.String(120))
     nif = db.Column(db.String(20))  # necesario para emitir facturas
     iva_pct = db.Column(db.Numeric(5, 2), default=21)  # % de IVA que aplicas
+    suplemento_desplazamiento = db.Column(db.Numeric(10, 2), default=20)  # € por servicio a domicilio
 
     def to_dict(self):
         return {
@@ -233,6 +246,7 @@ class ConfiguracionNegocio(db.Model):
             "email": self.email,
             "nif": self.nif,
             "iva_pct": float(self.iva_pct if self.iva_pct is not None else 21),
+            "suplemento_desplazamiento": float(self.suplemento_desplazamiento if self.suplemento_desplazamiento is not None else 20),
         }
 
     @staticmethod
@@ -301,6 +315,26 @@ class Firma(db.Model):
             "nombre_firmante": self.nombre_firmante,
             "nombre_archivo": self.nombre_archivo,
             "fecha": self.fecha.isoformat() if self.fecha else None,
+        }
+
+
+class ChecklistItem(db.Model):
+    """Hoja de trabajo de campo: puntos a marcar durante un servicio a
+    domicilio (ej. "Router revisado", "Cámara 1 alineada")."""
+    __tablename__ = "checklist_items"
+    id = db.Column(db.Integer, primary_key=True)
+    reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=False)
+    texto = db.Column(db.String(160), nullable=False)
+    completado = db.Column(db.Boolean, default=False)
+    orden = db.Column(db.Integer, default=0)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "reparacion_id": self.reparacion_id,
+            "texto": self.texto,
+            "completado": bool(self.completado),
+            "orden": self.orden,
         }
 
 

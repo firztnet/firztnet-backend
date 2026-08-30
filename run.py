@@ -13,6 +13,9 @@ ESTADOS_INICIALES = [
     ("listo", "Listo para entrega", 4),
     ("entregado", "Entregado", 5),
     ("no_reparable", "No reparable", 6),
+    ("contratado", "Contratado", 7),
+    ("en_proceso", "En proceso", 8),
+    ("completado", "Completado", 9),
 ]
 
 PLANTILLAS_INICIALES = [
@@ -33,6 +36,14 @@ with app.app_context():
         for codigo, nombre, orden in ESTADOS_INICIALES:
             db.session.add(Estado(codigo=codigo, nombre=nombre, orden=orden))
         db.session.commit()
+
+    # Si la base de datos ya existía (con solo los 6 estados de taller),
+    # añade los 3 nuevos de "servicio a domicilio" sin duplicar nada.
+    codigos_existentes = {e.codigo for e in Estado.query.all()}
+    for codigo, nombre, orden in ESTADOS_INICIALES:
+        if codigo not in codigos_existentes:
+            db.session.add(Estado(codigo=codigo, nombre=nombre, orden=orden))
+    db.session.commit()
 
     # Asigna código a clientes ya existentes que se crearon antes de que
     # este campo existiera (por si la base de datos ya tenía clientes).

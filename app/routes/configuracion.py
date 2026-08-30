@@ -25,5 +25,10 @@ def actualizar_configuracion():
             config.iva_pct = float(data["iva_pct"])
         except (TypeError, ValueError):
             pass
+    if "suplemento_desplazamiento" in data:
+        try:
+            config.suplemento_desplazamiento = float(data["suplemento_desplazamiento"])
+        except (TypeError, ValueError):
+            pass
     db.session.commit()
     return jsonify(config.to_dict())

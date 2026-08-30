@@ -14,6 +14,9 @@ ETIQUETAS_ESTADO = {
     "listo": "Listo para recoger",
     "entregado": "Entregado",
     "no_reparable": "No reparable",
+    "contratado": "Contratado",
+    "en_proceso": "En proceso",
+    "completado": "Completado",
 }
 
 MENSAJE_NO_ENCONTRADO = "No se encontró ninguna reparación con esos datos"
@@ -39,6 +42,7 @@ def _respuesta_seguimiento(reparacion):
     return {
         "token_seguimiento": reparacion.token_seguimiento,
         "numero_orden": reparacion.numero_orden,
+        "tipo_trabajo": reparacion.tipo_trabajo or "taller",
         "equipo": reparacion.equipo,
         "estado_actual": reparacion.estado_actual,
         "estado_label": ETIQUETAS_ESTADO.get(reparacion.estado_actual, reparacion.estado_actual),
@@ -128,11 +132,12 @@ def firmar_presupuesto(token):
         )
         db.session.add(firma)
 
-        # Al aceptar el presupuesto mientras el equipo está en diagnóstico,
-        # avanza sola a "En reparación" — el cliente ya dio luz verde para
-        # empezar a trabajar en ello.
+        # Al aceptar el presupuesto, avanza sola al siguiente paso — el
+        # cliente ya dio luz verde para empezar a trabajar en ello.
         if reparacion.estado_actual == "diagnostico":
             reparacion.estado_actual = "reparacion"
+        elif reparacion.estado_actual == "contratado":
+            reparacion.estado_actual = "en_proceso"
 
     db.session.commit()
     return jsonify(_respuesta_seguimiento(reparacion))

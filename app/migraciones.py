@@ -14,6 +14,7 @@ COLUMNAS_NUEVAS = {
     "configuracion_negocio": [
         ("nif", "VARCHAR(20)"),
         ("iva_pct", "NUMERIC(5, 2) DEFAULT 21"),
+        ("suplemento_desplazamiento", "NUMERIC(10, 2) DEFAULT 20"),
     ],
     "reparaciones": [
         ("token_seguimiento", "VARCHAR(40)"),
@@ -24,6 +25,9 @@ COLUMNAS_NUEVAS = {
         ("marca", "VARCHAR(60)"),
         ("modelo", "VARCHAR(60)"),
         ("urgente", "BOOLEAN DEFAULT 0"),
+        ("tipo_trabajo", "VARCHAR(20) DEFAULT 'taller'"),
+        ("direccion_servicio", "VARCHAR(200)"),
+        ("categoria", "VARCHAR(40)"),
     ],
 }
 
