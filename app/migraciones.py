@@ -11,6 +11,15 @@ COLUMNAS_NUEVAS = {
     "clientes": [
         ("nif", "VARCHAR(20)"),
     ],
+    "firmas": [
+        ("ip_aceptacion", "VARCHAR(45)"),
+    ],
+    "reparacion_repuestos": [
+        ("numero_serie", "VARCHAR(80)"),
+        ("proveedor_compra_id", "INTEGER"),
+        ("numero_factura_compra", "VARCHAR(60)"),
+        ("fecha_compra", "DATE"),
+    ],
     "configuracion_negocio": [
         ("nif", "VARCHAR(20)"),
         ("iva_pct", "NUMERIC(5, 2) DEFAULT 21"),
@@ -18,6 +27,8 @@ COLUMNAS_NUEVAS = {
         ("tarifa_hora", "NUMERIC(10, 2) DEFAULT 25"),
         ("enlace_resenas_google", "VARCHAR(300)"),
         ("tecnicos", "VARCHAR(300)"),
+        ("coste_almacenamiento_diario", "NUMERIC(10, 2) DEFAULT 1"),
+        ("telegram_chat_id", "VARCHAR(40)"),
     ],
     "reparaciones": [
         ("token_seguimiento", "VARCHAR(40)"),
@@ -29,6 +40,9 @@ COLUMNAS_NUEVAS = {
         ("modelo", "VARCHAR(60)"),
         ("urgente", "BOOLEAN DEFAULT 0"),
         ("tecnico", "VARCHAR(60)"),
+        ("fecha_listo", "DATETIME"),
+        ("wifi_ssid", "VARCHAR(80)"),
+        ("wifi_password", "VARCHAR(120)"),
         ("tipo_trabajo", "VARCHAR(20) DEFAULT 'taller'"),
         ("direccion_servicio", "VARCHAR(200)"),
         ("categoria", "VARCHAR(40)"),

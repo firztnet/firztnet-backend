@@ -244,3 +244,80 @@ def rendimiento_tecnicos():
 
     resultado.sort(key=lambda r: r["completados"], reverse=True)
     return jsonify(resultado)
+
+
+@reportes_bp.get("/abandonados")
+def equipos_abandonados():
+    """Equipos 'listo para entrega' que llevan muchos días sin recoger.
+    Usa ?dias=30 (por defecto) o ?dias=60 para el umbral. IMPORTANTE:
+    el texto legal del aviso es orientativo — antes de enviarlo de
+    verdad, conviene que confirmes con un profesional el plazo y la
+    base legal exacta que aplican en tu caso."""
+    from app.models import ConfiguracionNegocio
+    from app.notificaciones import generar_enlace_whatsapp_texto
+
+    umbral_dias = int(request.args.get("dias", 30))
+    limite = datetime.utcnow() - timedelta(days=umbral_dias)
+    negocio = ConfiguracionNegocio.obtener()
+    coste_dia = float(negocio.coste_almacenamiento_diario or 1)
+
+    reparaciones = Reparacion.query.filter(
+        Reparacion.estado_actual == "listo",
+        Reparacion.fecha_listo.isnot(None),
+        Reparacion.fecha_listo <= limite,
+    ).order_by(Reparacion.fecha_listo).all()
+
+    resultado = []
+    for rep in reparaciones:
+        dias = (datetime.utcnow() - rep.fecha_listo).days
+        coste_acumulado = round(dias * coste_dia, 2)
+        nombre = rep.cliente.nombre.split(" ")[0] if rep.cliente else ""
+        texto = (
+            f"Hola {nombre}, te escribimos de Firztnet sobre tu equipo ({rep.equipo}, orden {rep.numero_orden}), "
+            f"que lleva {dias} días listo para recoger sin que hayamos tenido noticias tuyas. "
+            f"Aplicamos un coste de custodia de {coste_dia:.2f} €/día (acumulado: {coste_acumulado:.2f} €). "
+            f"Por favor, ponte en contacto con nosotros para coordinar la recogida."
+        )
+        resultado.append({
+            "id": rep.id,
+            "numero_orden": rep.numero_orden,
+            "equipo": rep.equipo,
+            "cliente": rep.cliente.to_dict() if rep.cliente else None,
+            "fecha_listo": rep.fecha_listo.isoformat(),
+            "dias_abandonado": dias,
+            "coste_acumulado": coste_acumulado,
+            "mensaje_sugerido": texto,
+            "enlace_whatsapp": generar_enlace_whatsapp_texto(rep, texto),
+        })
+
+    return jsonify(resultado)
+
+
+@reportes_bp.get("/rentabilidad")
+def rentabilidad_por_linea():
+    """Ingresos, coste de piezas (a precio de compra) y margen, agrupado
+    por categoría de servicio (redes, cámaras, impresoras, mantenimiento
+    empresas) o 'reparación general' si no tiene categoría."""
+    from app.models import ReparacionRepuesto, MovimientoFinanciero
+
+    reparaciones = Reparacion.query.filter(Reparacion.estado_actual.in_(["entregado", "completado"])).all()
+
+    grupos = {}
+    for rep in reparaciones:
+        clave = rep.categoria or "reparacion_general"
+        g = grupos.setdefault(clave, {"categoria": clave, "trabajos": 0, "ingresos": 0.0, "coste_piezas": 0.0})
+        g["trabajos"] += 1
+        g["ingresos"] += float(sum((m.monto for m in rep.movimientos if m.tipo == "ingreso"), 0))
+        g["coste_piezas"] += sum(float(rr.repuesto.precio_compra or 0) * rr.cantidad for rr in rep.repuestos_usados if rr.repuesto)
+
+    resultado = []
+    for g in grupos.values():
+        margen = g["ingresos"] - g["coste_piezas"]
+        g["margen"] = round(margen, 2)
+        g["margen_pct"] = round((margen / g["ingresos"] * 100), 1) if g["ingresos"] > 0 else 0
+        g["ingresos"] = round(g["ingresos"], 2)
+        g["coste_piezas"] = round(g["coste_piezas"], 2)
+        resultado.append(g)
+
+    resultado.sort(key=lambda g: g["margen"], reverse=True)
+    return jsonify(resultado)

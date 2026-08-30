@@ -6,6 +6,7 @@ import os
 import base64
 import urllib.parse
 import urllib.request
+import urllib.error
 import json
 
 # Configura estas dos variables de entorno antes de arrancar el servidor:
@@ -149,3 +150,38 @@ def generar_enlace_whatsapp_texto(reparacion, texto):
     if not telefono:
         return None
     return f"https://wa.me/{telefono}?text={urllib.parse.quote(texto)}"
+
+
+def enviar_telegram(texto):
+    """Manda un mensaje a tu Telegram (para avisos internos: un aviso
+    urgente que entra, un presupuesto aprobado...). Necesita que hayas
+    configurado TELEGRAM_BOT_TOKEN (variable de entorno) y guardado tu
+    chat_id en Ajustes. Gratis, sin cuenta de pago ni verificación de
+    empresa — se crea un bot en 2 minutos hablando con @BotFather en
+    Telegram. Devuelve (ok: bool, detalle: str)."""
+    from app.models import ConfiguracionNegocio
+
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        return False, "Falta configurar TELEGRAM_BOT_TOKEN en las variables de entorno del servidor"
+
+    negocio = ConfiguracionNegocio.obtener()
+    if not negocio.telegram_chat_id:
+        return False, "Falta guardar tu chat_id de Telegram en Ajustes"
+
+    payload = json.dumps({"chat_id": negocio.telegram_chat_id, "text": texto}).encode()
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        data=payload,
+        headers={"Content-Type": "application/json", "User-Agent": "Firztnet/1.0"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            if resp.status == 200:
+                return True, "Enviado"
+            return False, f"Telegram respondió {resp.status}"
+    except urllib.error.HTTPError as e:
+        return False, f"Telegram respondió {e.code}: {e.read().decode(errors='ignore')[:200]}"
+    except Exception as e:
+        return False, str(e)

@@ -71,6 +71,12 @@ def crear_reparacion():
         reparacion.fecha_estimada = datetime.fromisoformat(data["fecha_estimada"])
     db.session.add(reparacion)
     db.session.commit()
+
+    if reparacion.urgente:
+        from app.notificaciones import enviar_telegram
+        cliente_nombre = reparacion.cliente.nombre if reparacion.cliente else "—"
+        enviar_telegram(f"🚨 Aviso URGENTE nuevo: {cliente_nombre} — {reparacion.equipo} (orden {reparacion.numero_orden})")
+
     return jsonify(reparacion.to_dict()), 201
 
 
@@ -81,6 +87,7 @@ def obtener_reparacion(rep_id):
     data["repuestos_usados"] = [rr.to_dict() for rr in reparacion.repuestos_usados]
     data["movimientos"] = [m.to_dict() for m in reparacion.movimientos]
     data["checklist"] = [c.to_dict() for c in ChecklistItem.query.filter_by(reparacion_id=rep_id).order_by(ChecklistItem.orden).all()]
+    data["firmas"] = [f.to_dict() for f in Firma.query.filter_by(reparacion_id=rep_id).order_by(Firma.fecha.desc()).all()]
     return jsonify(data)
 
 
@@ -104,6 +111,10 @@ def editar_reparacion(rep_id):
         reparacion.categoria = data["categoria"]
     if "tecnico" in data:
         reparacion.tecnico = data["tecnico"]
+    if "wifi_ssid" in data:
+        reparacion.wifi_ssid = data["wifi_ssid"]
+    if "wifi_password" in data:
+        reparacion.wifi_password = data["wifi_password"]
     db.session.commit()
     return jsonify(reparacion.to_dict())
 
@@ -129,6 +140,9 @@ def cambiar_estado(rep_id):
     else:
         reparacion.estado_actual = nuevo_estado
 
+    if nuevo_estado == "listo" and not reparacion.fecha_listo:
+        reparacion.fecha_listo = datetime.utcnow()
+
     db.session.commit()
 
     respuesta = reparacion.to_dict()
@@ -152,7 +166,9 @@ def cambiar_estado(rep_id):
 
 @reparaciones_bp.post("/<int:rep_id>/repuestos")
 def añadir_repuesto(rep_id):
-    """Asocia un repuesto usado a la reparación y descuenta stock."""
+    """Asocia un repuesto usado a la reparación y descuenta stock. Los
+    campos de trazabilidad (numero_serie, proveedor_compra_id,
+    numero_factura_compra, fecha_compra) son opcionales."""
     reparacion = Reparacion.query.get_or_404(rep_id)
     data = request.get_json() or {}
     repuesto = Repuesto.query.get_or_404(data.get("repuesto_id"))
@@ -166,11 +182,16 @@ def añadir_repuesto(rep_id):
         repuesto_id=repuesto.id,
         cantidad=cantidad,
         precio_aplicado=data.get("precio_aplicado", repuesto.precio_venta),
+        numero_serie=data.get("numero_serie"),
+        proveedor_compra_id=data.get("proveedor_compra_id") or repuesto.proveedor_id,
+        numero_factura_compra=data.get("numero_factura_compra"),
+        fecha_compra=datetime.fromisoformat(data["fecha_compra"]).date() if data.get("fecha_compra") else None,
     )
     repuesto.stock_actual -= cantidad
     db.session.add(uso)
     db.session.commit()
     return jsonify(uso.to_dict()), 201
+
 
 
 @reparaciones_bp.post("/<int:rep_id>/firma-entrega")
@@ -214,3 +235,77 @@ def añadir_checklist(rep_id):
     db.session.add(item)
     db.session.commit()
     return jsonify(item.to_dict()), 201
+
+
+@reparaciones_bp.get("/buscar-serie/<numero_serie>")
+def buscar_por_serie(numero_serie):
+    """Trazabilidad: dado un nº de serie, dice en qué reparación se usó,
+    a qué proveedor se le compró, con qué factura y en qué fecha —
+    para tramitar la garantía sin buscar papeles."""
+    uso = ReparacionRepuesto.query.filter_by(numero_serie=numero_serie).order_by(ReparacionRepuesto.id.desc()).first()
+    if not uso:
+        return jsonify({"error": "No se encontró ningún repuesto con ese número de serie"}), 404
+
+    reparacion = Reparacion.query.get(uso.reparacion_id)
+    resultado = uso.to_dict()
+    resultado["reparacion"] = {
+        "id": reparacion.id,
+        "numero_orden": reparacion.numero_orden,
+        "cliente": reparacion.cliente.to_dict() if reparacion.cliente else None,
+        "equipo": reparacion.equipo,
+        "fecha_entrega": reparacion.fecha_entrega.isoformat() if reparacion.fecha_entrega else None,
+    } if reparacion else None
+    return jsonify(resultado)
+
+
+@reparaciones_bp.post("/<int:rep_id>/cobrar-y-facturar")
+def cobrar_y_facturar(rep_id):
+    """1 clic: registra el cobro Y emite la factura de golpe, sobre el
+    total acumulado de la reparación (incluyendo este cobro)."""
+    from decimal import Decimal
+    from app.models import MovimientoFinanciero, Factura, ConfiguracionNegocio
+    from app.routes.facturas import generar_numero_factura
+
+    reparacion = Reparacion.query.get_or_404(rep_id)
+    if not reparacion.cliente:
+        return jsonify({"error": "Esta reparación no tiene cliente asociado"}), 400
+
+    if Factura.query.filter_by(reparacion_id=rep_id).first():
+        return jsonify({"error": "Esta reparación ya tiene una factura emitida. Genera una nueva reparación o usa el cobro normal sin refacturar."}), 400
+
+    data = request.get_json() or {}
+    if not data.get("monto"):
+        return jsonify({"error": "El monto es obligatorio"}), 400
+
+    movimiento = MovimientoFinanciero(
+        reparacion_id=rep_id,
+        tipo="ingreso",
+        concepto=data.get("concepto") or "Reparación",
+        monto=data["monto"],
+        metodo_pago=data.get("metodo_pago"),
+    )
+    db.session.add(movimiento)
+    db.session.flush()  # para que el cobro ya cuente en el total antes de facturar
+
+    ingresos = MovimientoFinanciero.query.filter_by(reparacion_id=rep_id, tipo="ingreso").all()
+    total_cobrado = sum((m.monto for m in ingresos), Decimal("0"))
+
+    negocio = ConfiguracionNegocio.obtener()
+    iva_pct = negocio.iva_pct if negocio.iva_pct is not None else Decimal("21")
+    base_imponible = (total_cobrado / (1 + iva_pct / 100)).quantize(Decimal("0.01"))
+    iva_importe = (total_cobrado - base_imponible).quantize(Decimal("0.01"))
+
+    factura = Factura(
+        numero=generar_numero_factura(),
+        reparacion_id=rep_id,
+        cliente_id=reparacion.cliente.id,
+        concepto=data.get("concepto_factura") or f"Reparación de {reparacion.equipo}",
+        base_imponible=base_imponible,
+        iva_pct=iva_pct,
+        iva_importe=iva_importe,
+        total=total_cobrado,
+    )
+    db.session.add(factura)
+    db.session.commit()
+
+    return jsonify({"movimiento": movimiento.to_dict(), "factura": factura.to_dict()}), 201

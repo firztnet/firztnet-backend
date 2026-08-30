@@ -2,7 +2,7 @@ from urllib.parse import quote
 from datetime import datetime
 from flask import Blueprint, jsonify, request
 from app import db
-from app.models import Reparacion, ConfiguracionNegocio, Firma
+from app.models import Reparacion, ConfiguracionNegocio, Firma, SolicitudServicio
 from app.firmas import guardar_firma_png
 
 seguimiento_bp = Blueprint("seguimiento", __name__)
@@ -42,6 +42,8 @@ def _respuesta_seguimiento(reparacion):
     return {
         "token_seguimiento": reparacion.token_seguimiento,
         "numero_orden": reparacion.numero_orden,
+        "wifi_ssid": reparacion.wifi_ssid,
+        "wifi_password": reparacion.wifi_password,
         "tipo_trabajo": reparacion.tipo_trabajo or "taller",
         "equipo": reparacion.equipo,
         "estado_actual": reparacion.estado_actual,
@@ -102,6 +104,22 @@ def buscar_por_numero_y_dato():
     return jsonify(_respuesta_seguimiento(reparacion))
 
 
+@seguimiento_bp.post("/<token>/solicitar-servicio")
+def solicitar_servicio(token):
+    """El cliente pide un nuevo servicio desde su propia página, sin
+    tener que llamar. Solo queda registrado para que tú lo veas y le
+    des de alta la reparación cuando quieras."""
+    reparacion = Reparacion.query.filter_by(token_seguimiento=token).first()
+    if not reparacion or not reparacion.cliente:
+        return jsonify({"error": "No se encontró ninguna reparación con ese enlace"}), 404
+
+    data = request.get_json() or {}
+    solicitud = SolicitudServicio(cliente_id=reparacion.cliente_id, mensaje=data.get("mensaje"))
+    db.session.add(solicitud)
+    db.session.commit()
+    return jsonify(solicitud.to_dict()), 201
+
+
 @seguimiento_bp.post("/<token>/presupuesto/firmar")
 def firmar_presupuesto(token):
     """El cliente acepta o rechaza el presupuesto, con firma dibujada
@@ -129,6 +147,7 @@ def firmar_presupuesto(token):
             tipo="presupuesto",
             nombre_firmante=data.get("nombre_firmante") or (reparacion.cliente.nombre if reparacion.cliente else None),
             nombre_archivo=nombre_archivo,
+            ip_aceptacion=request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip(),
         )
         db.session.add(firma)
 
@@ -140,4 +159,12 @@ def firmar_presupuesto(token):
             reparacion.estado_actual = "en_proceso"
 
     db.session.commit()
+
+    from app.notificaciones import enviar_telegram
+    cliente_nombre = reparacion.cliente.nombre if reparacion.cliente else "—"
+    if aceptado:
+        enviar_telegram(f"✅ {cliente_nombre} ACEPTÓ el presupuesto de {reparacion.equipo} (orden {reparacion.numero_orden}) — {float(reparacion.presupuesto_importe):.2f} €")
+    else:
+        enviar_telegram(f"❌ {cliente_nombre} RECHAZÓ el presupuesto de {reparacion.equipo} (orden {reparacion.numero_orden})")
+
     return jsonify(_respuesta_seguimiento(reparacion))

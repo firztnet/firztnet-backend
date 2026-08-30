@@ -41,5 +41,22 @@ def actualizar_configuracion():
         # Puede llegar como lista (["Carlos", "Ana"]) o como texto ya unido.
         valor = data["tecnicos"]
         config.tecnicos = ", ".join(valor) if isinstance(valor, list) else valor
+    if "coste_almacenamiento_diario" in data:
+        try:
+            config.coste_almacenamiento_diario = float(data["coste_almacenamiento_diario"])
+        except (TypeError, ValueError):
+            pass
+    if "telegram_chat_id" in data:
+        config.telegram_chat_id = data["telegram_chat_id"]
     db.session.commit()
     return jsonify(config.to_dict())
+
+
+@configuracion_bp.post("/telegram/probar")
+def probar_telegram():
+    """Manda un mensaje de prueba para confirmar que el bot y el
+    chat_id están bien configurados."""
+    from app.notificaciones import enviar_telegram
+
+    ok, detalle = enviar_telegram("🔧 Firztnet: esto es un mensaje de prueba. Si lo ves, ¡ya tienes las notificaciones de Telegram funcionando!")
+    return jsonify({"ok": ok, "detalle": detalle}), (200 if ok else 400)

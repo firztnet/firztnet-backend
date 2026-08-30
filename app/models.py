@@ -85,6 +85,8 @@ class Reparacion(db.Model):
     tipo_trabajo = db.Column(db.String(20), default="taller")  # 'taller' o 'domicilio'
     categoria = db.Column(db.String(40))  # redes, camaras, impresoras, mantenimiento_empresas...
     direccion_servicio = db.Column(db.String(200))  # solo para 'domicilio'
+    wifi_ssid = db.Column(db.String(80))  # solo si el servicio es de redes/instalación
+    wifi_password = db.Column(db.String(120))
     marca = db.Column(db.String(60))
     modelo = db.Column(db.String(60))
     urgente = db.Column(db.Boolean, default=False)
@@ -99,6 +101,7 @@ class Reparacion(db.Model):
     fecha_recepcion = db.Column(db.DateTime, default=datetime.utcnow)
     fecha_estimada = db.Column(db.DateTime)
     fecha_entrega = db.Column(db.DateTime)
+    fecha_listo = db.Column(db.DateTime)  # cuándo quedó listo para recoger (para detectar abandono)
     fecha_fin_garantia = db.Column(db.DateTime)
 
     # Identificador aleatorio (no adivinable, a diferencia del nº de orden
@@ -139,6 +142,8 @@ class Reparacion(db.Model):
             "tipo_trabajo": self.tipo_trabajo or "taller",
             "categoria": self.categoria,
             "direccion_servicio": self.direccion_servicio,
+            "wifi_ssid": self.wifi_ssid,
+            "wifi_password": self.wifi_password,
             "marca": self.marca,
             "modelo": self.modelo,
             "urgente": bool(self.urgente),
@@ -151,12 +156,37 @@ class Reparacion(db.Model):
             "fecha_recepcion": self.fecha_recepcion.isoformat() if self.fecha_recepcion else None,
             "fecha_estimada": self.fecha_estimada.isoformat() if self.fecha_estimada else None,
             "fecha_entrega": self.fecha_entrega.isoformat() if self.fecha_entrega else None,
+            "fecha_listo": self.fecha_listo.isoformat() if self.fecha_listo else None,
             "fecha_fin_garantia": self.fecha_fin_garantia.isoformat() if self.fecha_fin_garantia else None,
             "token_seguimiento": self.token_seguimiento,
             "presupuesto_importe": float(self.presupuesto_importe) if self.presupuesto_importe is not None else None,
             "presupuesto_descripcion": self.presupuesto_descripcion,
             "presupuesto_estado": self.presupuesto_estado,
             "presupuesto_fecha": self.presupuesto_fecha.isoformat() if self.presupuesto_fecha else None,
+        }
+
+
+class SolicitudServicio(db.Model):
+    """Petición del cliente desde su página pública ("necesito otro
+    servicio") — no crea una reparación sola, solo te avisa para que
+    tú la deis de alta cuando la veas."""
+    __tablename__ = "solicitudes_servicio"
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
+    mensaje = db.Column(db.Text)
+    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    atendida = db.Column(db.Boolean, default=False)
+
+    cliente = db.relationship("Cliente")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "cliente_id": self.cliente_id,
+            "cliente": self.cliente.to_dict() if self.cliente else None,
+            "mensaje": self.mensaje,
+            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "atendida": bool(self.atendida),
         }
 
 
@@ -201,15 +231,23 @@ class RMA(db.Model):
 
 
 class ReparacionRepuesto(db.Model):
-    """Tabla puente: qué repuestos (y cuántos) se usaron en cada reparación."""
+    """Tabla puente: qué repuestos (y cuántos) se usaron en cada reparación.
+    Los campos de trazabilidad (nº de serie, proveedor, factura de
+    compra) son opcionales — solo rellénalos en piezas que valga la
+    pena rastrear si fallan (discos, fuentes, cámaras)."""
     __tablename__ = "reparacion_repuestos"
     id = db.Column(db.Integer, primary_key=True)
     reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=False)
     repuesto_id = db.Column(db.Integer, db.ForeignKey("repuestos.id"), nullable=False)
     cantidad = db.Column(db.Integer, default=1)
     precio_aplicado = db.Column(db.Numeric(10, 2), default=0)
+    numero_serie = db.Column(db.String(80))
+    proveedor_compra_id = db.Column(db.Integer, db.ForeignKey("proveedores.id"), nullable=True)
+    numero_factura_compra = db.Column(db.String(60))
+    fecha_compra = db.Column(db.Date, nullable=True)
 
     repuesto = db.relationship("Repuesto")
+    proveedor_compra = db.relationship("Proveedor")
 
     def to_dict(self):
         return {
@@ -218,6 +256,11 @@ class ReparacionRepuesto(db.Model):
             "repuesto": self.repuesto.to_dict() if self.repuesto else None,
             "cantidad": self.cantidad,
             "precio_aplicado": float(self.precio_aplicado or 0),
+            "numero_serie": self.numero_serie,
+            "proveedor_compra_id": self.proveedor_compra_id,
+            "proveedor_compra": self.proveedor_compra.to_dict() if self.proveedor_compra else None,
+            "numero_factura_compra": self.numero_factura_compra,
+            "fecha_compra": self.fecha_compra.isoformat() if self.fecha_compra else None,
         }
 
 
@@ -281,6 +324,8 @@ class ConfiguracionNegocio(db.Model):
     tarifa_hora = db.Column(db.Numeric(10, 2), default=25)  # € por hora de mano de obra
     enlace_resenas_google = db.Column(db.String(300))  # enlace directo a "dejar una reseña" en tu ficha de Google
     tecnicos = db.Column(db.String(300))  # nombres separados por coma, ej: "Carlos, Ana"
+    coste_almacenamiento_diario = db.Column(db.Numeric(10, 2), default=1)  # € por día, equipos sin recoger
+    telegram_chat_id = db.Column(db.String(40))  # tu chat_id, para recibir avisos internos
 
     def to_dict(self):
         return {
@@ -295,6 +340,8 @@ class ConfiguracionNegocio(db.Model):
             "tarifa_hora": float(self.tarifa_hora if self.tarifa_hora is not None else 25),
             "enlace_resenas_google": self.enlace_resenas_google,
             "tecnicos": [t.strip() for t in (self.tecnicos or "").split(",") if t.strip()],
+            "coste_almacenamiento_diario": float(self.coste_almacenamiento_diario if self.coste_almacenamiento_diario is not None else 1),
+            "telegram_chat_id": self.telegram_chat_id,
         }
 
     @staticmethod
@@ -353,6 +400,7 @@ class Firma(db.Model):
     tipo = db.Column(db.String(20), nullable=False)  # 'presupuesto' o 'entrega'
     nombre_firmante = db.Column(db.String(120))
     nombre_archivo = db.Column(db.String(120), nullable=False)
+    ip_aceptacion = db.Column(db.String(45))  # IPv4 o IPv6 de quien firmó, como prueba
     fecha = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -362,6 +410,7 @@ class Firma(db.Model):
             "tipo": self.tipo,
             "nombre_firmante": self.nombre_firmante,
             "nombre_archivo": self.nombre_archivo,
+            "ip_aceptacion": self.ip_aceptacion,
             "fecha": self.fecha.isoformat() if self.fecha else None,
         }
 
