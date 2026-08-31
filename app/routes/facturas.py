@@ -73,6 +73,8 @@ def emitir_factura():
         iva_pct=iva_pct,
         iva_importe=iva_importe,
         total=total_cobrado,
+        cliente_nombre_congelado=reparacion.cliente.nombre,
+        cliente_nif_congelado=reparacion.cliente.nif,
     )
     db.session.add(factura)
     db.session.commit()
@@ -134,6 +136,8 @@ def rectificar_factura(factura_id):
         es_rectificativa=True,
         factura_original_id=original.id,
         motivo_rectificacion=data["motivo"],
+        cliente_nombre_congelado=original.cliente_nombre_congelado,
+        cliente_nif_congelado=original.cliente_nif_congelado,
     )
     db.session.add(rectificativa)
     db.session.commit()

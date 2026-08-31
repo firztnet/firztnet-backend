@@ -24,6 +24,8 @@ COLUMNAS_NUEVAS = {
         ("es_rectificativa", "BOOLEAN DEFAULT 0"),
         ("factura_original_id", "INTEGER"),
         ("motivo_rectificacion", "TEXT"),
+        ("cliente_nombre_congelado", "VARCHAR(120)"),
+        ("cliente_nif_congelado", "VARCHAR(20)"),
     ],
     "configuracion_negocio": [
         ("nif", "VARCHAR(20)"),

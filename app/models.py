@@ -166,6 +166,28 @@ class Reparacion(db.Model):
         }
 
 
+class RegistroRGPD(db.Model):
+    """Constancia de que se atendió una solicitud de 'derecho al
+    olvido' — sin guardar los datos que ya se borraron, solo que
+    existió la solicitud y cuándo, por si algún día hay que
+    demostrar que se cumplió."""
+    __tablename__ = "registros_rgpd"
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.Integer, nullable=False)  # se guarda el id, pero el cliente ya queda anonimizado
+    nombre_en_el_momento = db.Column(db.String(120))
+    motivo = db.Column(db.Text)
+    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "cliente_id": self.cliente_id,
+            "nombre_en_el_momento": self.nombre_en_el_momento,
+            "motivo": self.motivo,
+            "fecha": self.fecha.isoformat() if self.fecha else None,
+        }
+
+
 class SolicitudServicio(db.Model):
     """Petición del cliente desde su página pública ("necesito otro
     servicio") — no crea una reparación sola, solo te avisa para que
@@ -374,6 +396,9 @@ class Factura(db.Model):
     es_rectificativa = db.Column(db.Boolean, default=False)
     factura_original_id = db.Column(db.Integer, db.ForeignKey("facturas.id"), nullable=True)
     motivo_rectificacion = db.Column(db.Text)
+    cliente_nombre_congelado = db.Column(db.String(120))  # copia del nombre en el momento de emitirla
+    cliente_nif_congelado = db.Column(db.String(20))  # copia del NIF en el momento de emitirla — así, si el
+    # cliente pide luego borrar sus datos (RGPD), la factura sigue siendo correcta y legible para Hacienda
 
     reparacion = db.relationship("Reparacion")
     cliente = db.relationship("Cliente")
@@ -395,6 +420,8 @@ class Factura(db.Model):
             "factura_original_id": self.factura_original_id,
             "factura_original_numero": self.factura_original.numero if self.factura_original else None,
             "motivo_rectificacion": self.motivo_rectificacion,
+            "cliente_nombre_congelado": self.cliente_nombre_congelado,
+            "cliente_nif_congelado": self.cliente_nif_congelado,
         }
 
 

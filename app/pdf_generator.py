@@ -259,10 +259,17 @@ def generar_pdf_factura(factura, reparacion, cliente, negocio):
     y -= 5 * mm
     c.setFillColor(GRIS_TEXTO)
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(margen, y, cliente.nombre)
+    # Prioridad a los datos "congelados" en el momento de emitir la
+    # factura — así, si el cliente pide luego borrar sus datos (RGPD),
+    # esta factura sigue mostrando lo correcto. Si es una factura
+    # antigua sin ese campo (de antes de este cambio), se usa el dato
+    # en vivo del cliente como respaldo.
+    nombre_mostrado = factura.cliente_nombre_congelado or cliente.nombre
+    nif_mostrado = factura.cliente_nif_congelado or cliente.nif
+    c.drawString(margen, y, nombre_mostrado)
     y -= 5 * mm
     c.setFont("Helvetica", 9)
-    c.drawString(margen, y, f"NIF: {cliente.nif or '—'}")
+    c.drawString(margen, y, f"NIF: {nif_mostrado or '—'}")
     y -= 12 * mm
 
     # Tabla de conceptos (una sola línea: la reparación completa)
