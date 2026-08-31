@@ -83,7 +83,14 @@ def create_app():
 
     @app.errorhandler(429)
     def _demasiadas_peticiones(e):
-        from flask import jsonify
+        from flask import jsonify, request
+        if request.path == "/api/auth/login":
+            from app.notificaciones import enviar_telegram
+            from app.routes.auth import _ip_real
+            try:
+                enviar_telegram(f"🚨 POSIBLE ATAQUE: se ha bloqueado el login por demasiados intentos fallidos seguidos.\nIP: {_ip_real()}")
+            except Exception:
+                pass
         return jsonify({"error": "Demasiados intentos seguidos. Espera un minuto y vuelve a intentarlo."}), 429
 
     _programar_backup_automatico(app)
