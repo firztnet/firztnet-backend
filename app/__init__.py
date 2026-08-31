@@ -4,6 +4,7 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from app.auth import registrar_proteccion
+import os
 
 db = SQLAlchemy()
 # Aviso: el almacenamiento en memoria de Flask-Limiter asume UN SOLO
@@ -13,12 +14,28 @@ db = SQLAlchemy()
 limiter = Limiter(get_remote_address, default_limits=[])
 
 
+def _origenes_permitidos():
+    """De dónde puede llegar tráfico a esta API. Por defecto, solo tu
+    propio panel — y localhost, para poder seguir probando en tu
+    ordenador durante el desarrollo. Añade más dominios (ej. si compras
+    firztnet.es) con la variable de entorno ORIGENES_EXTRA, separados
+    por comas."""
+    origenes = [
+        os.environ.get("FRONTEND_URL", "https://firztnet-preview.vercel.app"),
+        "http://localhost:5173",  # Vite en local
+        "http://localhost:3000",
+    ]
+    extra = os.environ.get("ORIGENES_EXTRA", "")
+    origenes += [o.strip() for o in extra.split(",") if o.strip()]
+    return origenes
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object("config.Config")
 
     db.init_app(app)
-    CORS(app)  # permite que el frontend (web/app) consuma esta API
+    CORS(app, origins=_origenes_permitidos())  # solo tu panel (y localhost en desarrollo) puede llamar a esta API
     registrar_proteccion(app)  # exige login (token) en toda la API
     limiter.init_app(app)
 
@@ -92,6 +109,20 @@ def create_app():
             except Exception:
                 pass
         return jsonify({"error": "Demasiados intentos seguidos. Espera un minuto y vuelve a intentarlo."}), 429
+
+    @app.after_request
+    def _cabeceras_seguridad(response):
+        """Protecciones estándar de navegador, sin coste ni configuración:
+        evitan que un navegador "adivine" el tipo de un archivo subido
+        (X-Content-Type-Options), que alguien intente meter tu panel
+        dentro de un iframe ajeno para engañar a un usuario
+        (X-Frame-Options), y refuerzan que todo vaya siempre por HTTPS
+        (Strict-Transport-Security)."""
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
     _programar_backup_automatico(app)
 
