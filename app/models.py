@@ -118,10 +118,14 @@ class Reparacion(db.Model):
     movimientos = db.relationship("MovimientoFinanciero", backref="reparacion", lazy=True)
     comprobantes = db.relationship("Comprobante", backref="reparacion", lazy=True)
 
-    def marcar_entregada(self):
+    def marcar_entregada(self, con_garantia=True):
+        """con_garantia=False cuando el equipo se entrega SIN haberse
+        reparado (venía de 'no_reparable') — no tiene sentido darle
+        garantía a algo que no se arregló."""
         self.estado_actual = "entregado"
         self.fecha_entrega = datetime.utcnow()
-        self.fecha_fin_garantia = self.fecha_entrega + timedelta(days=30 * GARANTIA_MESES)
+        if con_garantia:
+            self.fecha_fin_garantia = self.fecha_entrega + timedelta(days=30 * GARANTIA_MESES)
 
     def marcar_completada(self):
         """Equivalente a 'entregada', pero para servicios a domicilio."""

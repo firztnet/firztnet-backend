@@ -130,7 +130,8 @@ def cambiar_estado(rep_id):
         return jsonify({"error": "Falta el campo 'estado'"}), 400
 
     if nuevo_estado == "entregado":
-        reparacion.marcar_entregada()
+        venia_de_no_reparable = reparacion.estado_actual == "no_reparable"
+        reparacion.marcar_entregada(con_garantia=not venia_de_no_reparable)
     elif nuevo_estado == "completado":
         reparacion.marcar_completada()
     elif nuevo_estado == "no_reparable":
