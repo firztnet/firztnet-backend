@@ -13,6 +13,8 @@ from datetime import datetime
 from reportlab.lib.pagesizes import A5
 from reportlab.lib.units import mm
 from reportlab.lib.colors import HexColor
+from reportlab.lib.utils import ImageReader
+import qrcode
 from reportlab.pdfgen import canvas
 from app.models import ConfiguracionNegocio
 
@@ -215,7 +217,8 @@ def generar_pdf_recibo(reparacion, movimientos_ingreso):
 
 def generar_pdf_factura(factura, reparacion, cliente, negocio):
     """Factura fiscal formal: nº correlativo, NIF de ambas partes,
-    base imponible, IVA desglosado y total."""
+    base imponible, IVA desglosado y total. Si es una rectificativa,
+    lo indica claramente y referencia la factura original."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A5)
     ancho, alto = A5
@@ -225,11 +228,23 @@ def generar_pdf_factura(factura, reparacion, cliente, negocio):
     y = alto - 32 * mm
     c.setFillColor(GRIS_TEXTO)
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(margen, y, "FACTURA")
+    c.drawString(margen, y, "FACTURA RECTIFICATIVA" if factura.es_rectificativa else "FACTURA")
     c.setFont("Helvetica-Bold", 11)
-    c.setFillColor(AZUL)
+    c.setFillColor(HexColor("#DC2626") if factura.es_rectificativa else AZUL)
     c.drawRightString(ancho - margen, y, factura.numero)
     y -= 7 * mm
+
+    if factura.es_rectificativa:
+        c.setFillColor(HexColor("#DC2626"))
+        c.setFont("Helvetica-Bold", 8.5)
+        c.drawString(margen, y, f"Rectifica a la factura {factura.factura_original.numero}")
+        y -= 4.5 * mm
+        c.setFont("Helvetica", 7.5)
+        c.setFillColor(GRIS_CLARO)
+        for linea in _partir_texto(f"Motivo: {factura.motivo_rectificacion}", 65):
+            c.drawString(margen, y, linea)
+            y -= 3.8 * mm
+        y -= 2 * mm
 
     c.setFont("Helvetica", 8.5)
     c.setFillColor(GRIS_CLARO)
@@ -473,3 +488,74 @@ def generar_pdf_parte_trabajo(reparacion, negocio, repuestos_usados, checklist, 
     c.save()
     buffer.seek(0)
     return buffer
+
+
+def generar_pdf_etiqueta_qr(reparacion, negocio, frontend_url):
+    """Etiqueta pequeña con un QR que lleva directo a la página pública
+    de seguimiento de esta reparación en concreto — para imprimir y
+    pegar en el equipo al recibirlo. El cliente, al escanearlo, ve el
+    estado en tiempo real, la garantía, el WiFi (si aplica) y puede
+    pedir un nuevo servicio."""
+    enlace = f"{frontend_url}/seguimiento?token={reparacion.token_seguimiento}"
+
+    qr = qrcode.QRCode(box_size=10, border=2)
+    qr.add_data(enlace)
+    qr.make(fit=True)
+    imagen_qr = qr.make_image(fill_color="#0F172A", back_color="white")
+    buffer_qr = io.BytesIO()
+    imagen_qr.save(buffer_qr, format="PNG")
+    buffer_qr.seek(0)
+
+    # Tamaño de etiqueta pequeña (aprox. una etiqueta de envío), no A5 completo.
+    ancho, alto = 80 * mm, 50 * mm
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=(ancho, alto))
+
+    margen = 4 * mm
+    c.setFillColor(HexColor("#2563EB"))
+    c.rect(0, alto - 9 * mm, ancho, 9 * mm, fill=1, stroke=0)
+    c.setFillColor(HexColor("#FFFFFF"))
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(margen, alto - 6.5 * mm, negocio.nombre_negocio or "FIRZTNET")
+
+    tam_qr = 32 * mm
+    c.drawImage(ImageReader(buffer_qr), margen, alto - 9 * mm - tam_qr - 3 * mm, width=tam_qr, height=tam_qr)
+
+    x_texto = margen + tam_qr + 4 * mm
+    y = alto - 15 * mm
+    c.setFillColor(HexColor("#0F172A"))
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(x_texto, y, reparacion.numero_orden)
+    y -= 5 * mm
+    c.setFont("Helvetica", 7.5)
+    c.setFillColor(HexColor("#475569"))
+    for linea in _partir_texto(reparacion.equipo, 20):
+        c.drawString(x_texto, y, linea)
+        y -= 3.6 * mm
+    y -= 2 * mm
+    c.setFont("Helvetica-Oblique", 6.5)
+    c.setFillColor(HexColor("#64748B"))
+    c.drawString(x_texto, y, "Escanea para ver")
+    y -= 3 * mm
+    c.drawString(x_texto, y, "el estado y la garantía")
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+
+def _partir_texto(texto, max_caracteres):
+    """Reparte un texto largo en varias líneas cortas, sin cortar palabras."""
+    palabras = (texto or "").split()
+    lineas, actual = [], ""
+    for palabra in palabras:
+        prueba = f"{actual} {palabra}".strip()
+        if len(prueba) > max_caracteres and actual:
+            lineas.append(actual)
+            actual = palabra
+        else:
+            actual = prueba
+    if actual:
+        lineas.append(actual)
+    return lineas[:2]  # como mucho 2 líneas, para que quepa en la etiqueta

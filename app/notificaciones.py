@@ -192,3 +192,33 @@ def enviar_telegram(texto):
         return False, f"Telegram respondió {e.code}: {e.read().decode(errors='ignore')[:200]}"
     except Exception as e:
         return False, str(e)
+
+
+def enviar_documento_telegram(nombre_archivo, contenido_bytes, caption=""):
+    """Manda un archivo (ej. el ZIP de backup) a tu Telegram. Requiere lo
+    mismo que enviar_telegram: TELEGRAM_BOT_TOKEN y tu chat_id guardado.
+    Usa requests (no urllib) porque subir un archivo es multipart/form-data,
+    más simple así que a mano."""
+    import requests
+    from app.models import ConfiguracionNegocio
+
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        return False, "Falta configurar TELEGRAM_BOT_TOKEN en las variables de entorno del servidor"
+
+    negocio = ConfiguracionNegocio.obtener()
+    if not negocio.telegram_chat_id:
+        return False, "Falta guardar tu chat_id de Telegram en Ajustes"
+
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendDocument",
+            data={"chat_id": negocio.telegram_chat_id, "caption": caption},
+            files={"document": (nombre_archivo, contenido_bytes, "application/zip")},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            return True, "Enviado"
+        return False, f"Telegram respondió {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        return False, str(e)

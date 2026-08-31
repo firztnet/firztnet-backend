@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 from app import db
 from app.models import Reparacion, ConfiguracionNegocio, Firma, SolicitudServicio
 from app.firmas import guardar_firma_png
+from app import limiter
 
 seguimiento_bp = Blueprint("seguimiento", __name__)
 
@@ -63,6 +64,7 @@ def _respuesta_seguimiento(reparacion):
 
 
 @seguimiento_bp.get("/<token>")
+@limiter.limit("30 per minute")
 def consultar_seguimiento(token):
     """Ruta pública (sin login) para el enlace que le mandamos al
     cliente por email/WhatsApp — el token ya identifica su reparación,
@@ -74,6 +76,7 @@ def consultar_seguimiento(token):
 
 
 @seguimiento_bp.post("/buscar")
+@limiter.limit("10 per minute")  # aquí es donde más importa: nº de orden es adivinable, esto frena probar muchos de golpe
 def buscar_por_numero_y_dato():
     """Segunda vía de acceso: si el cliente perdió el enlace pero
     recuerda su nº de orden, puede consultarlo con su DNI o teléfono
@@ -105,6 +108,7 @@ def buscar_por_numero_y_dato():
 
 
 @seguimiento_bp.post("/<token>/solicitar-servicio")
+@limiter.limit("10 per minute")
 def solicitar_servicio(token):
     """El cliente pide un nuevo servicio desde su propia página, sin
     tener que llamar. Solo queda registrado para que tú lo veas y le
@@ -121,6 +125,7 @@ def solicitar_servicio(token):
 
 
 @seguimiento_bp.post("/<token>/presupuesto/firmar")
+@limiter.limit("10 per minute")
 def firmar_presupuesto(token):
     """El cliente acepta o rechaza el presupuesto, con firma dibujada
     en pantalla (o solo un clic de rechazo, que no necesita firma)."""

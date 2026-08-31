@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify, current_app
 from app.auth import generar_token, verificar_credenciales
+from app import limiter
 
 auth_bp = Blueprint("auth", __name__)
 
 
 @auth_bp.post("/login")
+@limiter.limit("5 per minute")  # frena la fuerza bruta contra el usuario/contraseña
 def login():
     data = request.get_json() or {}
     username = data.get("username", "")

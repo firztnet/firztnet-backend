@@ -356,9 +356,10 @@ class ConfiguracionNegocio(db.Model):
 
 class Factura(db.Model):
     """Factura fiscal formal, con numeración correlativa (obligatoria por
-    ley: sin huecos, en orden cronológico). Una vez emitida no se borra
-    ni se renumera — si hay un error, se anula con una rectificativa
-    (no implementado todavía, de momento evita borrar facturas)."""
+    ley: sin huecos, en orden cronológico). Una vez emitida NUNCA se
+    borra ni se edita — si hay un error, se corrige emitiendo una
+    factura rectificativa (por sustitución: sustituye los importes,
+    referenciando la original), con su propia numeración separada."""
     __tablename__ = "facturas"
     id = db.Column(db.Integer, primary_key=True)
     numero = db.Column(db.String(20), unique=True, nullable=False)
@@ -370,9 +371,13 @@ class Factura(db.Model):
     iva_importe = db.Column(db.Numeric(10, 2), nullable=False)
     total = db.Column(db.Numeric(10, 2), nullable=False)
     fecha_emision = db.Column(db.DateTime, default=datetime.utcnow)
+    es_rectificativa = db.Column(db.Boolean, default=False)
+    factura_original_id = db.Column(db.Integer, db.ForeignKey("facturas.id"), nullable=True)
+    motivo_rectificacion = db.Column(db.Text)
 
     reparacion = db.relationship("Reparacion")
     cliente = db.relationship("Cliente")
+    factura_original = db.relationship("Factura", remote_side=[id])
 
     def to_dict(self):
         return {
@@ -386,6 +391,10 @@ class Factura(db.Model):
             "iva_importe": float(self.iva_importe),
             "total": float(self.total),
             "fecha_emision": self.fecha_emision.isoformat() if self.fecha_emision else None,
+            "es_rectificativa": bool(self.es_rectificativa),
+            "factura_original_id": self.factura_original_id,
+            "factura_original_numero": self.factura_original.numero if self.factura_original else None,
+            "motivo_rectificacion": self.motivo_rectificacion,
         }
 
 

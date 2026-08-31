@@ -14,10 +14,18 @@ FOTOS_DIR = os.environ.get("FOTOS_DIR", os.path.join(os.path.dirname(os.path.dir
 os.makedirs(FOTOS_DIR, exist_ok=True)
 
 EXTENSIONES_PERMITIDAS = {"jpg", "jpeg", "png", "webp", "heic"}
+TAMANO_MAXIMO_POR_FOTO = 10 * 1024 * 1024  # 10 MB — de sobra para una foto de móvil
 
 
 def _extension_valida(nombre):
     return "." in nombre and nombre.rsplit(".", 1)[1].lower() in EXTENSIONES_PERMITIDAS
+
+
+def _tamano_archivo(archivo):
+    archivo.seek(0, os.SEEK_END)
+    tamano = archivo.tell()
+    archivo.seek(0)  # importante: hay que rebobinarlo, o luego .save() guardaría un archivo vacío
+    return tamano
 
 
 @fotos_bp.post("/reparaciones/<int:rep_id>/fotos")
@@ -30,8 +38,12 @@ def subir_fotos(rep_id):
         return jsonify({"error": "No se recibió ninguna foto"}), 400
 
     guardadas = []
+    demasiado_grandes = []
     for archivo in archivos:
         if not archivo.filename or not _extension_valida(archivo.filename):
+            continue
+        if _tamano_archivo(archivo) > TAMANO_MAXIMO_POR_FOTO:
+            demasiado_grandes.append(archivo.filename)
             continue
         extension = archivo.filename.rsplit(".", 1)[1].lower()
         nombre_unico = f"{rep_id}_{uuid.uuid4().hex[:10]}.{extension}"
@@ -42,9 +54,14 @@ def subir_fotos(rep_id):
         guardadas.append(foto)
 
     if not guardadas:
+        if demasiado_grandes:
+            return jsonify({"error": f"'{demasiado_grandes[0]}' pesa más de 10 MB — comprime la foto o hazla con menos resolución."}), 400
         return jsonify({"error": "Ningún archivo tenía un formato válido (jpg, png, webp, heic)"}), 400
 
     db.session.commit()
+    # Se devuelve SIEMPRE un array plano (igual que antes) — si alguna foto
+    # se descartó por peso, el frontend lo detecta comparando cuántas
+    # mandó contra cuántas llegaron guardadas, y avisa sin romper nada.
     return jsonify([f.to_dict() for f in guardadas]), 201
 
 

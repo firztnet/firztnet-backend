@@ -1,8 +1,9 @@
 from flask import Blueprint, jsonify, send_file
 from app.models import Reparacion, ConfiguracionNegocio, Firma, ChecklistItem, SesionTrabajo
-from app.pdf_generator import generar_pdf_parte_trabajo
+from app.pdf_generator import generar_pdf_parte_trabajo, generar_pdf_etiqueta_qr
 from app.firmas import ruta_completa
 from app.routes.sesiones import _minutos_trabajados
+from app.notificaciones import FRONTEND_URL
 
 parte_trabajo_bp = Blueprint("parte_trabajo", __name__)
 
@@ -27,3 +28,14 @@ def descargar_parte_trabajo(rep_id):
         firma_ruta=firma_ruta, coste_mano_obra=coste_mano_obra, minutos_trabajados=minutos,
     )
     return send_file(buffer, mimetype="application/pdf", download_name=f"parte_trabajo_{reparacion.numero_orden}.pdf")
+
+
+@parte_trabajo_bp.get("/reparaciones/<int:rep_id>/etiqueta-qr/pdf")
+def descargar_etiqueta_qr(rep_id):
+    """Etiqueta pequeña con QR para imprimir y pegar en el equipo al
+    recibirlo. El QR lleva directo a la página pública de seguimiento
+    de ESTA reparación."""
+    reparacion = Reparacion.query.get_or_404(rep_id)
+    negocio = ConfiguracionNegocio.obtener()
+    buffer = generar_pdf_etiqueta_qr(reparacion, negocio, FRONTEND_URL)
+    return send_file(buffer, mimetype="application/pdf", download_name=f"etiqueta_{reparacion.numero_orden}.pdf")

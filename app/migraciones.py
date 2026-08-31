@@ -20,6 +20,11 @@ COLUMNAS_NUEVAS = {
         ("numero_factura_compra", "VARCHAR(60)"),
         ("fecha_compra", "DATE"),
     ],
+    "facturas": [
+        ("es_rectificativa", "BOOLEAN DEFAULT 0"),
+        ("factura_original_id", "INTEGER"),
+        ("motivo_rectificacion", "TEXT"),
+    ],
     "configuracion_negocio": [
         ("nif", "VARCHAR(20)"),
         ("iva_pct", "NUMERIC(5, 2) DEFAULT 21"),
