@@ -90,12 +90,21 @@ def estimador_tiempo_coste():
     negocio = ConfiguracionNegocio.obtener()
     tarifa_hora = negocio.tarifa_hora or Decimal("25")
     coste_mano_obra = round(Decimal(str(horas_promedio)) * tarifa_hora, 2)
-    precio_sugerido = round(coste_mano_obra + coste_piezas, 2)
+
+    # A domicilio se suma también el suplemento de desplazamiento
+    # configurado en Ajustes — es un coste real de ese tipo de trabajo,
+    # no tiene sentido dejarlo fuera de la sugerencia de precio.
+    suplemento_desplazamiento = Decimal("0")
+    if tipo_trabajo == "domicilio":
+        suplemento_desplazamiento = negocio.suplemento_desplazamiento or Decimal("20")
+
+    precio_sugerido = round(coste_mano_obra + coste_piezas + suplemento_desplazamiento, 2)
 
     return jsonify({
         "encontradas": len(reparaciones),
         "horas_promedio": horas_promedio,
         "coste_mano_obra_estimado": float(coste_mano_obra),
         "coste_piezas": float(coste_piezas),
+        "suplemento_desplazamiento": float(suplemento_desplazamiento),
         "precio_sugerido": float(precio_sugerido),
     })

@@ -36,6 +36,7 @@ COLUMNAS_NUEVAS = {
         ("tecnicos", "VARCHAR(300)"),
         ("coste_almacenamiento_diario", "NUMERIC(10, 2) DEFAULT 1"),
         ("telegram_chat_id", "VARCHAR(40)"),
+        ("telefono_bizum", "VARCHAR(20)"),
     ],
     "reparaciones": [
         ("token_seguimiento", "VARCHAR(40)"),

@@ -48,6 +48,8 @@ def actualizar_configuracion():
             pass
     if "telegram_chat_id" in data:
         config.telegram_chat_id = data["telegram_chat_id"]
+    if "telefono_bizum" in data:
+        config.telefono_bizum = data["telefono_bizum"]
     db.session.commit()
     return jsonify(config.to_dict())
 

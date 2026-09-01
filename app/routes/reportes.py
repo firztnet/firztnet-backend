@@ -63,7 +63,7 @@ def reporte_mensual():
     ingresos, gastos = _balance(query)
 
     entregadas = Reparacion.query.filter(
-        Reparacion.fecha_entrega >= inicio_mes, Reparacion.estado_actual == "entregado"
+        Reparacion.fecha_entrega >= inicio_mes, Reparacion.estado_actual.in_(["entregado", "completado"])
     ).count()
     no_reparables = Reparacion.query.filter(
         Reparacion.fecha_recepcion >= inicio_mes, Reparacion.estado_actual == "no_reparable"
@@ -86,12 +86,17 @@ def reporte_mensual():
 
 @reportes_bp.get("/contador")
 def contador_reparaciones():
-    """El contador de reparaciones que pidió Carlos, con desglose por estado."""
+    """El contador de reparaciones que pidió Carlos, con desglose por
+    estado. 'Entregadas' incluye tanto 'entregado' (taller) como
+    'completado' (domicilio) — ambos significan que el trabajo ya
+    terminó de verdad, solo que con nombres distintos según el tipo."""
     total = Reparacion.query.count()
     en_curso = Reparacion.query.filter(
-        ~Reparacion.estado_actual.in_(["entregado", "no_reparable"])
+        ~Reparacion.estado_actual.in_(["entregado", "no_reparable", "completado"])
     ).count()
-    entregadas = Reparacion.query.filter_by(estado_actual="entregado").count()
+    entregadas = Reparacion.query.filter(
+        Reparacion.estado_actual.in_(["entregado", "completado"])
+    ).count()
     no_reparables = Reparacion.query.filter_by(estado_actual="no_reparable").count()
 
     return jsonify(

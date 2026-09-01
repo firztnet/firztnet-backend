@@ -352,6 +352,7 @@ class ConfiguracionNegocio(db.Model):
     tecnicos = db.Column(db.String(300))  # nombres separados por coma, ej: "Carlos, Ana"
     coste_almacenamiento_diario = db.Column(db.Numeric(10, 2), default=1)  # € por día, equipos sin recoger
     telegram_chat_id = db.Column(db.String(40))  # tu chat_id, para recibir avisos internos
+    telefono_bizum = db.Column(db.String(20))  # número al que los clientes te pueden mandar un Bizum (sin proveedor de pago contratado)
 
     def to_dict(self):
         return {
@@ -368,6 +369,7 @@ class ConfiguracionNegocio(db.Model):
             "tecnicos": [t.strip() for t in (self.tecnicos or "").split(",") if t.strip()],
             "coste_almacenamiento_diario": float(self.coste_almacenamiento_diario if self.coste_almacenamiento_diario is not None else 1),
             "telegram_chat_id": self.telegram_chat_id,
+            "telefono_bizum": self.telefono_bizum,
         }
 
     @staticmethod
