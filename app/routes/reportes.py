@@ -326,3 +326,30 @@ def rentabilidad_por_linea():
 
     resultado.sort(key=lambda g: g["margen"], reverse=True)
     return jsonify(resultado)
+
+
+@reportes_bp.get("/garantias-activas")
+def garantias_activas():
+    """Todas las reparaciones que siguen dentro de plazo de garantía
+    ahora mismo, ordenadas de la que antes caduca a la que más tarda —
+    así lo que está a punto de acabar aparece siempre primero."""
+    hoy = datetime.utcnow()
+    reparaciones = (
+        Reparacion.query.filter(Reparacion.fecha_fin_garantia.isnot(None), Reparacion.fecha_fin_garantia >= hoy)
+        .order_by(Reparacion.fecha_fin_garantia)
+        .all()
+    )
+
+    resultado = []
+    for rep in reparaciones:
+        dias_restantes = (rep.fecha_fin_garantia - hoy).days
+        resultado.append({
+            "id": rep.id,
+            "numero_orden": rep.numero_orden,
+            "equipo": rep.equipo,
+            "cliente": rep.cliente.to_dict() if rep.cliente else None,
+            "fecha_fin_garantia": rep.fecha_fin_garantia.isoformat(),
+            "dias_restantes": dias_restantes,
+        })
+
+    return jsonify(resultado)
