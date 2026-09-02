@@ -193,15 +193,18 @@ class RegistroRGPD(db.Model):
 
 
 class SolicitudServicio(db.Model):
-    """Petición del cliente desde su página pública ("necesito otro
-    servicio") — no crea una reparación sola, solo te avisa para que
-    tú la deis de alta cuando la veas."""
+    """Petición de servicio — puede venir de un cliente ya conocido
+    (desde su página de seguimiento, "necesito otro servicio") o de un
+    contacto totalmente nuevo (desde el formulario público de
+    presupuesto, sin historial previo). No crea una reparación sola,
+    solo te avisa para que tú la deis de alta cuando la veas."""
     __tablename__ = "solicitudes_servicio"
     id = db.Column(db.Integer, primary_key=True)
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
     mensaje = db.Column(db.Text)
     fecha = db.Column(db.DateTime, default=datetime.utcnow)
     atendida = db.Column(db.Boolean, default=False)
+    origen = db.Column(db.String(20), default="existente")  # 'existente' o 'nuevo_contacto'
 
     cliente = db.relationship("Cliente")
 
@@ -213,6 +216,7 @@ class SolicitudServicio(db.Model):
             "mensaje": self.mensaje,
             "fecha": self.fecha.isoformat() if self.fecha else None,
             "atendida": bool(self.atendida),
+            "origen": self.origen or "existente",
         }
 
 

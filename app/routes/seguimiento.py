@@ -118,7 +118,34 @@ def solicitar_servicio(token):
         return jsonify({"error": "No se encontró ninguna reparación con ese enlace"}), 404
 
     data = request.get_json() or {}
-    solicitud = SolicitudServicio(cliente_id=reparacion.cliente_id, mensaje=data.get("mensaje"))
+    solicitud = SolicitudServicio(cliente_id=reparacion.cliente_id, mensaje=data.get("mensaje"), origen="existente")
+    db.session.add(solicitud)
+    db.session.commit()
+    return jsonify(solicitud.to_dict()), 201
+
+
+@seguimiento_bp.post("/solicitar-presupuesto")
+@limiter.limit("10 per minute")  # formulario público sin token — mismo límite que /buscar, para evitar abuso
+def solicitar_presupuesto_publico():
+    """Formulario público para gente que TODAVÍA NO es cliente — sin
+    necesitar ningún nº de orden ni historial previo. Si el teléfono ya
+    coincide con un cliente existente, se reutiliza su ficha en vez de
+    duplicarla; si no, se crea una nueva."""
+    from app.models import Cliente
+
+    data = request.get_json() or {}
+    nombre = (data.get("nombre") or "").strip()
+    telefono = (data.get("telefono") or "").strip()
+    if not nombre or not telefono:
+        return jsonify({"error": "El nombre y el teléfono son obligatorios"}), 400
+
+    cliente = Cliente.query.filter_by(telefono=telefono).first()
+    if not cliente:
+        cliente = Cliente(nombre=nombre, telefono=telefono, email=data.get("email"))
+        db.session.add(cliente)
+        db.session.flush()  # para tener ya su id antes de crear la solicitud
+
+    solicitud = SolicitudServicio(cliente_id=cliente.id, mensaje=data.get("mensaje"), origen="nuevo_contacto")
     db.session.add(solicitud)
     db.session.commit()
     return jsonify(solicitud.to_dict()), 201

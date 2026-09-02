@@ -14,6 +14,9 @@ COLUMNAS_NUEVAS = {
     "firmas": [
         ("ip_aceptacion", "VARCHAR(45)"),
     ],
+    "solicitudes_servicio": [
+        ("origen", "VARCHAR(20) DEFAULT 'existente'"),
+    ],
     "reparacion_repuestos": [
         ("numero_serie", "VARCHAR(80)"),
         ("proveedor_compra_id", "INTEGER"),
