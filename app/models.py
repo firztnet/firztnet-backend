@@ -249,6 +249,7 @@ class SolicitudServicio(db.Model):
     fecha = db.Column(db.DateTime, default=datetime.utcnow)
     atendida = db.Column(db.Boolean, default=False)
     origen = db.Column(db.String(20), default="existente")  # 'existente' o 'nuevo_contacto'
+    negocio = db.Column(db.String(20), default="firztnet")  # 'firztnet' o 'firztweb' — a cuál de tus dos negocios pertenece
 
     cliente = db.relationship("Cliente")
 
@@ -261,6 +262,7 @@ class SolicitudServicio(db.Model):
             "fecha": self.fecha.isoformat() if self.fecha else None,
             "atendida": bool(self.atendida),
             "origen": self.origen or "existente",
+            "negocio": self.negocio or "firztnet",
         }
 
 

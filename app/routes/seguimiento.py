@@ -118,7 +118,7 @@ def solicitar_servicio(token):
         return jsonify({"error": "No se encontró ninguna reparación con ese enlace"}), 404
 
     data = request.get_json() or {}
-    solicitud = SolicitudServicio(cliente_id=reparacion.cliente_id, mensaje=data.get("mensaje"), origen="existente")
+    solicitud = SolicitudServicio(cliente_id=reparacion.cliente_id, mensaje=data.get("mensaje"), origen="existente", negocio="firztnet")
     db.session.add(solicitud)
     db.session.commit()
     return jsonify(solicitud.to_dict()), 201
@@ -130,7 +130,9 @@ def solicitar_presupuesto_publico():
     """Formulario público para gente que TODAVÍA NO es cliente — sin
     necesitar ningún nº de orden ni historial previo. Si el teléfono ya
     coincide con un cliente existente, se reutiliza su ficha en vez de
-    duplicarla; si no, se crea una nueva."""
+    duplicarla; si no, se crea una nueva. La usan tanto la web de
+    Firztnet como la de Firztweb, así que hay que distinguir de cuál
+    de las dos viene cada solicitud."""
     from app.models import Cliente
 
     data = request.get_json() or {}
@@ -139,13 +141,17 @@ def solicitar_presupuesto_publico():
     if not nombre or not telefono:
         return jsonify({"error": "El nombre y el teléfono son obligatorios"}), 400
 
+    negocio = (data.get("negocio") or "firztnet").strip().lower()
+    if negocio not in {"firztnet", "firztweb"}:
+        negocio = "firztnet"  # valor seguro por defecto — así una web vieja en caché que no mande este campo no se pierde
+
     cliente = Cliente.query.filter_by(telefono=telefono).first()
     if not cliente:
         cliente = Cliente(nombre=nombre, telefono=telefono, email=data.get("email"))
         db.session.add(cliente)
         db.session.flush()  # para tener ya su id antes de crear la solicitud
 
-    solicitud = SolicitudServicio(cliente_id=cliente.id, mensaje=data.get("mensaje"), origen="nuevo_contacto")
+    solicitud = SolicitudServicio(cliente_id=cliente.id, mensaje=data.get("mensaje"), origen="nuevo_contacto", negocio=negocio)
     db.session.add(solicitud)
     db.session.commit()
     return jsonify(solicitud.to_dict()), 201

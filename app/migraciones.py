@@ -19,6 +19,7 @@ COLUMNAS_NUEVAS = {
     ],
     "solicitudes_servicio": [
         ("origen", "VARCHAR(20) DEFAULT 'existente'"),
+        ("negocio", "VARCHAR(20) DEFAULT 'firztnet'"),
     ],
     "reparacion_repuestos": [
         ("numero_serie", "VARCHAR(80)"),
