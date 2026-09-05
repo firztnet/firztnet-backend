@@ -63,6 +63,7 @@ def create_app():
     from app.routes.conocimiento import conocimiento_bp
     from app.routes.recordatorios import recordatorios_bp
     from app.routes.parte_trabajo import parte_trabajo_bp
+    from app.routes.estadisticas import estadisticas_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(clientes_bp, url_prefix="/api/clientes")
@@ -88,6 +89,7 @@ def create_app():
     app.register_blueprint(conocimiento_bp, url_prefix="/api/conocimiento")
     app.register_blueprint(recordatorios_bp, url_prefix="/api/recordatorios")
     app.register_blueprint(parte_trabajo_bp, url_prefix="/api")
+    app.register_blueprint(estadisticas_bp, url_prefix="/api/estadisticas")
 
     @app.get("/api/salud")
     def salud():

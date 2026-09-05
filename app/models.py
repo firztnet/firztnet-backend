@@ -192,6 +192,50 @@ class RegistroRGPD(db.Model):
         }
 
 
+class VisitaWeb(db.Model):
+    """Un registro por cada carga de página en tus webs públicas
+    (Firztnet, Firztweb...) — contador propio, sin depender de
+    ningún servicio externo."""
+    __tablename__ = "visitas_web"
+    id = db.Column(db.Integer, primary_key=True)
+    sitio = db.Column(db.String(40), nullable=False)  # 'firztnet', 'firztweb', etc.
+    ruta = db.Column(db.String(200))  # ej. '/', '/#contacto'
+    referido = db.Column(db.String(300))  # de dónde venía (Google, directo...)
+    dispositivo = db.Column(db.String(20), default="desconocido")  # 'movil' o 'escritorio'
+    fecha = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "sitio": self.sitio,
+            "ruta": self.ruta,
+            "referido": self.referido,
+            "dispositivo": self.dispositivo,
+            "fecha": self.fecha.isoformat() if self.fecha else None,
+        }
+
+
+class EventoWeb(db.Model):
+    """Un clic en un botón concreto, o una sección que el visitante ha
+    visto al hacer scroll — para saber qué funciona de verdad en la
+    página, no solo cuánta gente entra."""
+    __tablename__ = "eventos_web"
+    id = db.Column(db.Integer, primary_key=True)
+    sitio = db.Column(db.String(40), nullable=False)
+    tipo = db.Column(db.String(20), nullable=False)  # 'clic' o 'seccion_vista'
+    etiqueta = db.Column(db.String(80), nullable=False)  # ej. 'boton_presupuesto', 'seccion_servicios'
+    fecha = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "sitio": self.sitio,
+            "tipo": self.tipo,
+            "etiqueta": self.etiqueta,
+            "fecha": self.fecha.isoformat() if self.fecha else None,
+        }
+
+
 class SolicitudServicio(db.Model):
     """Petición de servicio — puede venir de un cliente ya conocido
     (desde su página de seguimiento, "necesito otro servicio") o de un

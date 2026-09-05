@@ -14,6 +14,9 @@ COLUMNAS_NUEVAS = {
     "firmas": [
         ("ip_aceptacion", "VARCHAR(45)"),
     ],
+    "visitas_web": [
+        ("dispositivo", "VARCHAR(20) DEFAULT 'desconocido'"),
+    ],
     "solicitudes_servicio": [
         ("origen", "VARCHAR(20) DEFAULT 'existente'"),
     ],
