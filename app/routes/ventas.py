@@ -39,17 +39,6 @@ def crear_venta():
     if tipo not in TIPOS_VALIDOS:
         return jsonify({"error": "Tipo de venta no reconocido"}), 400
 
-    cliente_nombre = (data.get("cliente_nombre") or "").strip()
-    if not cliente_nombre:
-        return jsonify({"error": "El nombre del cliente es obligatorio"}), 400
-
-    try:
-        importe = float(data.get("importe") or 0)
-    except (TypeError, ValueError):
-        return jsonify({"error": "El importe no es un número válido"}), 400
-    if importe < 0:
-        return jsonify({"error": "El importe no puede ser negativo"}), 400
-
     fecha = datetime.utcnow().date()
     if data.get("fecha"):
         try:
@@ -57,9 +46,52 @@ def crear_venta():
         except ValueError:
             return jsonify({"error": "Fecha en formato incorrecto (usa AAAA-MM-DD)"}), 400
 
+    producto = None
+    importe_total_venta = None
+    porcentaje_comision = None
+
+    if tipo == "afiliado":
+        # En afiliados no hay "cliente" propiamente — pides el producto, el
+        # importe total de la venta y el % de comisión, y calculamos el resto.
+        producto = (data.get("producto") or "").strip()
+        if not producto:
+            return jsonify({"error": "El producto es obligatorio en ventas de afiliados"}), 400
+
+        try:
+            importe_total_venta = float(data.get("importe_total_venta"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "El importe total de la venta no es un número válido"}), 400
+        if importe_total_venta < 0:
+            return jsonify({"error": "El importe total no puede ser negativo"}), 400
+
+        try:
+            porcentaje_comision = float(data.get("porcentaje_comision"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "El porcentaje de comisión no es un número válido"}), 400
+        if not (0 <= porcentaje_comision <= 100):
+            return jsonify({"error": "El porcentaje de comisión debe estar entre 0 y 100"}), 400
+
+        importe = round(importe_total_venta * porcentaje_comision / 100, 2)
+        cliente_nombre = (data.get("cliente_nombre") or "").strip()  # opcional aquí — vacío está bien
+
+    else:
+        cliente_nombre = (data.get("cliente_nombre") or "").strip()
+        if not cliente_nombre:
+            return jsonify({"error": "El nombre del cliente es obligatorio"}), 400
+
+        try:
+            importe = float(data.get("importe") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"error": "El importe no es un número válido"}), 400
+        if importe < 0:
+            return jsonify({"error": "El importe no puede ser negativo"}), 400
+
     venta = Venta(
         negocio=negocio,
         tipo=tipo,
+        producto=producto,
+        importe_total_venta=importe_total_venta,
+        porcentaje_comision=porcentaje_comision,
         cliente_nombre=cliente_nombre,
         descripcion=data.get("descripcion"),
         importe=importe,
@@ -74,7 +106,9 @@ def crear_venta():
 
 @ventas_bp.patch("/<int:venta_id>")
 def actualizar_venta(venta_id):
-    """Para marcar como cobrada (o al revés), o corregir cualquier dato."""
+    """Para marcar como cobrada (o al revés), o corregir cualquier dato.
+    Si tocas el importe total o el % de comisión de una venta de
+    afiliados, la comisión (el "importe" real) se recalcula sola."""
     venta = Venta.query.get(venta_id)
     if not venta:
         return jsonify({"error": "Venta no encontrada"}), 404
@@ -88,7 +122,32 @@ def actualizar_venta(venta_id):
         venta.descripcion = data["descripcion"]
     if "enlace_nota" in data:
         venta.enlace_nota = data["enlace_nota"]
-    if "importe" in data:
+    if "producto" in data and data["producto"].strip():
+        venta.producto = data["producto"].strip()
+
+    recalcular_comision = False
+    if "importe_total_venta" in data:
+        try:
+            nuevo_total = float(data["importe_total_venta"])
+            if nuevo_total < 0:
+                return jsonify({"error": "El importe total no puede ser negativo"}), 400
+            venta.importe_total_venta = nuevo_total
+            recalcular_comision = True
+        except (TypeError, ValueError):
+            return jsonify({"error": "El importe total no es un número válido"}), 400
+    if "porcentaje_comision" in data:
+        try:
+            nuevo_pct = float(data["porcentaje_comision"])
+            if not (0 <= nuevo_pct <= 100):
+                return jsonify({"error": "El porcentaje de comisión debe estar entre 0 y 100"}), 400
+            venta.porcentaje_comision = nuevo_pct
+            recalcular_comision = True
+        except (TypeError, ValueError):
+            return jsonify({"error": "El porcentaje de comisión no es un número válido"}), 400
+
+    if recalcular_comision and venta.importe_total_venta is not None and venta.porcentaje_comision is not None:
+        venta.importe = round(venta.importe_total_venta * venta.porcentaje_comision / 100, 2)
+    elif "importe" in data:
         try:
             nuevo_importe = float(data["importe"])
             if nuevo_importe < 0:

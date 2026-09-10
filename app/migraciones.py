@@ -17,6 +17,11 @@ COLUMNAS_NUEVAS = {
     "visitas_web": [
         ("dispositivo", "VARCHAR(20) DEFAULT 'desconocido'"),
     ],
+    "ventas": [
+        ("producto", "VARCHAR(200)"),
+        ("importe_total_venta", "FLOAT"),
+        ("porcentaje_comision", "FLOAT"),
+    ],
     "solicitudes_servicio": [
         ("origen", "VARCHAR(20) DEFAULT 'existente'"),
         ("negocio", "VARCHAR(20) DEFAULT 'firztnet'"),

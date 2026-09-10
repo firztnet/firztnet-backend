@@ -200,9 +200,12 @@ class Venta(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     negocio = db.Column(db.String(20), nullable=False, default="firztweb")  # 'firztnet', 'firztweb', 'afiliados'
     tipo = db.Column(db.String(20), nullable=False)  # 'web', 'app', 'sistema', 'afiliado', 'otro'
-    cliente_nombre = db.Column(db.String(150), nullable=False)
+    cliente_nombre = db.Column(db.String(150))  # obligatorio salvo en ventas de afiliados (ahí no hay "cliente" propiamente)
+    producto = db.Column(db.String(200))  # solo para afiliados: qué producto se vendió
+    importe_total_venta = db.Column(db.Float)  # solo para afiliados: precio total del producto (antes de comisión)
+    porcentaje_comision = db.Column(db.Float)  # solo para afiliados: % usado para calcular la comisión
     descripcion = db.Column(db.Text)
-    importe = db.Column(db.Float, nullable=False, default=0)
+    importe = db.Column(db.Float, nullable=False, default=0)  # lo que realmente ingresas — en afiliados, la comisión ya calculada
     cobrado = db.Column(db.Boolean, default=False)
     enlace_nota = db.Column(db.String(500))  # ej. el enlace de afiliado, o cualquier nota suelta
     fecha = db.Column(db.Date, nullable=False, default=lambda: datetime.utcnow().date())
@@ -214,6 +217,9 @@ class Venta(db.Model):
             "negocio": self.negocio,
             "tipo": self.tipo,
             "cliente_nombre": self.cliente_nombre,
+            "producto": self.producto,
+            "importe_total_venta": self.importe_total_venta,
+            "porcentaje_comision": self.porcentaje_comision,
             "descripcion": self.descripcion,
             "importe": self.importe,
             "cobrado": bool(self.cobrado),
