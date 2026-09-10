@@ -5,7 +5,7 @@ from app.models import VisitaWeb, EventoWeb
 
 estadisticas_bp = Blueprint("estadisticas", __name__)
 
-SITIOS_VALIDOS = {"firztnet", "firztweb"}
+SITIOS_VALIDOS = {"firztnet", "firztweb", "afiliados"}
 TIPOS_EVENTO_VALIDOS = {"clic", "seccion_vista"}
 DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
 
