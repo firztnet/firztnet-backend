@@ -192,6 +192,37 @@ class RegistroRGPD(db.Model):
         }
 
 
+class Venta(db.Model):
+    """Una venta de tus otros negocios — webs, apps, sistemas a medida
+    (Firztweb) o productos de afiliados — para llevar el control en el
+    mismo sitio que todo lo demás, sin depender de hojas sueltas."""
+    __tablename__ = "ventas"
+    id = db.Column(db.Integer, primary_key=True)
+    negocio = db.Column(db.String(20), nullable=False, default="firztweb")  # 'firztnet', 'firztweb', 'afiliados'
+    tipo = db.Column(db.String(20), nullable=False)  # 'web', 'app', 'sistema', 'afiliado', 'otro'
+    cliente_nombre = db.Column(db.String(150), nullable=False)
+    descripcion = db.Column(db.Text)
+    importe = db.Column(db.Float, nullable=False, default=0)
+    cobrado = db.Column(db.Boolean, default=False)
+    enlace_nota = db.Column(db.String(500))  # ej. el enlace de afiliado, o cualquier nota suelta
+    fecha = db.Column(db.Date, nullable=False, default=lambda: datetime.utcnow().date())
+    fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "negocio": self.negocio,
+            "tipo": self.tipo,
+            "cliente_nombre": self.cliente_nombre,
+            "descripcion": self.descripcion,
+            "importe": self.importe,
+            "cobrado": bool(self.cobrado),
+            "enlace_nota": self.enlace_nota,
+            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "fecha_creacion": self.fecha_creacion.isoformat() if self.fecha_creacion else None,
+        }
+
+
 class VisitaWeb(db.Model):
     """Un registro por cada carga de página en tus webs públicas
     (Firztnet, Firztweb...) — contador propio, sin depender de
