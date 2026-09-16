@@ -46,6 +46,54 @@ def actualizar_stock(repuesto_id):
     return jsonify(repuesto.to_dict())
 
 
+@repuestos_bp.patch("/<int:repuesto_id>")
+def editar_repuesto(repuesto_id):
+    """Corregir los datos generales de un repuesto (nombre, categoría,
+    precios, stock mínimo) — por ejemplo, si te equivocaste al darlo de
+    alta. El stock ACTUAL no se toca aquí a propósito: para eso ya
+    existen /stock (reponer) y /vender (venta directa), que además
+    dejan constancia en Caja — cambiarlo aquí directamente rompería
+    ese rastro."""
+    repuesto = Repuesto.query.get_or_404(repuesto_id)
+    data = request.get_json() or {}
+
+    if "nombre" in data:
+        if not data["nombre"].strip():
+            return jsonify({"error": "El nombre no puede quedar vacío"}), 400
+        repuesto.nombre = data["nombre"].strip()
+    if "categoria" in data:
+        repuesto.categoria = data["categoria"]
+    if "proveedor_id" in data:
+        repuesto.proveedor_id = data["proveedor_id"]
+    if "stock_minimo" in data:
+        try:
+            nuevo_min = int(data["stock_minimo"])
+            if nuevo_min < 0:
+                return jsonify({"error": "El stock mínimo no puede ser negativo"}), 400
+            repuesto.stock_minimo = nuevo_min
+        except (TypeError, ValueError):
+            return jsonify({"error": "El stock mínimo no es válido"}), 400
+    if "precio_compra" in data:
+        try:
+            nuevo_compra = float(data["precio_compra"])
+            if nuevo_compra < 0:
+                return jsonify({"error": "El precio de compra no puede ser negativo"}), 400
+            repuesto.precio_compra = nuevo_compra
+        except (TypeError, ValueError):
+            return jsonify({"error": "El precio de compra no es válido"}), 400
+    if "precio_venta" in data:
+        try:
+            nuevo_venta = float(data["precio_venta"])
+            if nuevo_venta < 0:
+                return jsonify({"error": "El precio de venta no puede ser negativo"}), 400
+            repuesto.precio_venta = nuevo_venta
+        except (TypeError, ValueError):
+            return jsonify({"error": "El precio de venta no es válido"}), 400
+
+    db.session.commit()
+    return jsonify(repuesto.to_dict())
+
+
 @repuestos_bp.post("/<int:repuesto_id>/vender")
 def vender_directo(repuesto_id):
     """Vender un repuesto/accesorio suelto (SSD, RAM, cable...) sin
