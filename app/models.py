@@ -60,6 +60,7 @@ class Repuesto(db.Model):
     stock_minimo = db.Column(db.Integer, default=1)
     precio_compra = db.Column(db.Numeric(10, 2), default=0)
     precio_venta = db.Column(db.Numeric(10, 2), default=0)
+    activo = db.Column(db.Boolean, default=True)  # baja lógica — no se borra físicamente, para no romper el historial de reparaciones/ventas que ya lo usaron
 
     def to_dict(self):
         return {
@@ -70,6 +71,7 @@ class Repuesto(db.Model):
             "stock_actual": self.stock_actual,
             "stock_minimo": self.stock_minimo,
             "stock_bajo": self.stock_actual <= self.stock_minimo,
+            "activo": bool(self.activo) if self.activo is not None else True,
             "precio_compra": float(self.precio_compra or 0),
             "precio_venta": float(self.precio_venta or 0),
         }

@@ -8,7 +8,12 @@ repuestos_bp = Blueprint("repuestos", __name__)
 @repuestos_bp.get("")
 def listar_repuestos():
     solo_stock_bajo = request.args.get("stock_bajo") == "true"
-    repuestos = Repuesto.query.order_by(Repuesto.nombre).all()
+    incluir_inactivos = request.args.get("incluir_inactivos") == "true"
+
+    query = Repuesto.query
+    if not incluir_inactivos:
+        query = query.filter(Repuesto.activo.isnot(False))  # incluye también los que tengan NULL (repuestos antiguos, antes de este campo)
+    repuestos = query.order_by(Repuesto.nombre).all()
     resultado = [r.to_dict() for r in repuestos]
     if solo_stock_bajo:
         resultado = [r for r in resultado if r["stock_bajo"]]
@@ -139,3 +144,42 @@ def vender_directo(repuesto_id):
         "repuesto": repuesto.to_dict(),
         "movimiento": movimiento.to_dict(),
     }), 201
+
+
+@repuestos_bp.delete("/<int:repuesto_id>")
+def dar_de_baja(repuesto_id):
+    """Baja lógica — no se borra de la base de datos, solo deja de
+    aparecer en el listado activo. Así no se rompe el historial de
+    reparaciones o ventas antiguas que ya lo usaron."""
+    repuesto = Repuesto.query.get_or_404(repuesto_id)
+    repuesto.activo = False
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@repuestos_bp.post("/<int:repuesto_id>/reactivar")
+def reactivar(repuesto_id):
+    """Por si te equivocaste dando de baja algo, o vuelves a tenerlo disponible."""
+    repuesto = Repuesto.query.get_or_404(repuesto_id)
+    repuesto.activo = True
+    db.session.commit()
+    return jsonify(repuesto.to_dict())
+
+
+@repuestos_bp.get("/resumen-capital")
+def resumen_capital():
+    """Cuánto dinero tienes invertido en el inventario ahora mismo (al
+    precio de compra), y cuánto ganarías si vendieras todo el stock
+    actual al precio de venta — solo cuenta lo activo."""
+    activos = Repuesto.query.filter(Repuesto.activo.isnot(False)).all()
+
+    capital_invertido = sum(r.stock_actual * float(r.precio_compra or 0) for r in activos)
+    valor_venta_total = sum(r.stock_actual * float(r.precio_venta or 0) for r in activos)
+    ganancia_potencial = valor_venta_total - capital_invertido
+
+    return jsonify({
+        "capital_invertido": round(capital_invertido, 2),
+        "valor_venta_total": round(valor_venta_total, 2),
+        "ganancia_potencial": round(ganancia_potencial, 2),
+        "num_productos_activos": len(activos),
+    })

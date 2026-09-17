@@ -22,6 +22,9 @@ COLUMNAS_NUEVAS = {
         ("importe_total_venta", "FLOAT"),
         ("porcentaje_comision", "FLOAT"),
     ],
+    "repuestos": [
+        ("activo", "BOOLEAN DEFAULT 1"),
+    ],
     "solicitudes_servicio": [
         ("origen", "VARCHAR(20) DEFAULT 'existente'"),
         ("negocio", "VARCHAR(20) DEFAULT 'firztnet'"),
