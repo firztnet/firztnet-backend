@@ -134,9 +134,36 @@ def generar_pdf_comprobante(reparacion, tipo, enlace_seguimiento=None):
 
 
 def _dibujar_cabecera(c, negocio, ancho, alto, margen, subtitulo=None):
-    """Cabecera azul compartida por comprobantes, recibos y facturas."""
+    """Cabecera azul compartida por comprobantes, recibos, facturas y
+    presupuestos — con el logo en vez del nombre en texto."""
     c.setFillColor(AZUL)
     c.rect(0, alto - 22 * mm, ancho, 22 * mm, fill=True, stroke=False)
+
+    if os.path.exists(LOGO_PATH):
+        try:
+            logo = ImageReader(LOGO_PATH)
+            logo_ancho_px, logo_alto_px = logo.getSize()
+            logo_alto_pdf = 15 * mm
+            logo_ancho_pdf = logo_alto_pdf * (logo_ancho_px / logo_alto_px)
+            pos_x = margen
+            pos_y = alto - 22 * mm + (22 * mm - logo_alto_pdf) / 2
+
+            # Tarjeta blanca detrás — el logo tiene fondo transparente, y sin esto
+            # se pierde casi entero contra la propia barra azul de fondo.
+            relleno = 2.2 * mm
+            c.setFillColor(HexColor("#FFFFFF"))
+            c.roundRect(pos_x - relleno, pos_y - relleno, logo_ancho_pdf + 2 * relleno, logo_alto_pdf + 2 * relleno, radius=2.5 * mm, fill=True, stroke=False)
+
+            c.drawImage(
+                logo,
+                pos_x, pos_y,
+                width=logo_ancho_pdf, height=logo_alto_pdf,
+                preserveAspectRatio=True, mask="auto",
+            )
+            return
+        except Exception:
+            pass  # si falla el logo, cae al texto de siempre, para no dejar la cabecera vacía
+
     c.setFillColor(HexColor("#FFFFFF"))
     c.setFont("Helvetica-Bold", 16)
     c.drawString(margen, alto - 14 * mm, (negocio.nombre_negocio or "Firztnet").upper())
@@ -327,22 +354,6 @@ def generar_pdf_presupuesto(reparacion, negocio, firma_ruta=None):
     ancho, alto = A5
     margen = 14 * mm
     _dibujar_cabecera(c, negocio, ancho, alto, margen)
-
-    # Logo en la esquina superior derecha, debajo de la barra azul de cabecera
-    if os.path.exists(LOGO_PATH):
-        try:
-            logo = ImageReader(LOGO_PATH)
-            logo_ancho_px, logo_alto_px = logo.getSize()
-            logo_ancho_pdf = 42 * mm
-            logo_alto_pdf = logo_ancho_pdf * (logo_alto_px / logo_ancho_px)
-            c.drawImage(
-                logo,
-                ancho - margen - logo_ancho_pdf, alto - 22 * mm - 4 * mm - logo_alto_pdf,
-                width=logo_ancho_pdf, height=logo_alto_pdf,
-                preserveAspectRatio=True, mask="auto",
-            )
-        except Exception:
-            pass  # si el logo falla por lo que sea, el presupuesto se genera igual, solo sin logo
 
     y = alto - 32 * mm
     c.setFillColor(GRIS_TEXTO)
