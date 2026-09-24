@@ -18,6 +18,8 @@ import qrcode
 from reportlab.pdfgen import canvas
 from app.models import ConfiguracionNegocio
 
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "static", "logo_firztnet.png")
+
 AZUL = HexColor("#2563EB")
 GRIS_TEXTO = HexColor("#334155")
 GRIS_CLARO = HexColor("#94A3B8")
@@ -325,6 +327,22 @@ def generar_pdf_presupuesto(reparacion, negocio, firma_ruta=None):
     ancho, alto = A5
     margen = 14 * mm
     _dibujar_cabecera(c, negocio, ancho, alto, margen)
+
+    # Logo en la esquina superior derecha, debajo de la barra azul de cabecera
+    if os.path.exists(LOGO_PATH):
+        try:
+            logo = ImageReader(LOGO_PATH)
+            logo_ancho_px, logo_alto_px = logo.getSize()
+            logo_ancho_pdf = 42 * mm
+            logo_alto_pdf = logo_ancho_pdf * (logo_alto_px / logo_ancho_px)
+            c.drawImage(
+                logo,
+                ancho - margen - logo_ancho_pdf, alto - 22 * mm - 4 * mm - logo_alto_pdf,
+                width=logo_ancho_pdf, height=logo_alto_pdf,
+                preserveAspectRatio=True, mask="auto",
+            )
+        except Exception:
+            pass  # si el logo falla por lo que sea, el presupuesto se genera igual, solo sin logo
 
     y = alto - 32 * mm
     c.setFillColor(GRIS_TEXTO)
