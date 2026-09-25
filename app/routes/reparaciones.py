@@ -1,7 +1,7 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from app import db
-from app.models import Reparacion, Cliente, ReparacionRepuesto, Repuesto, Firma, PlantillaMensaje, ChecklistItem
+from app.models import Reparacion, Cliente, ReparacionRepuesto, Repuesto, Firma, PlantillaMensaje, ChecklistItem, MovimientoFinanciero
 from app.firmas import guardar_firma_png
 from app.notificaciones import renderizar_plantilla, generar_enlace_whatsapp_texto
 
@@ -130,6 +130,26 @@ def cambiar_estado(rep_id):
         return jsonify({"error": "Falta el campo 'estado'"}), 400
 
     if nuevo_estado == "entregado":
+        total_pagado = sum(
+            float(m.monto) for m in MovimientoFinanciero.query.filter_by(reparacion_id=rep_id, tipo="ingreso").all()
+        )
+        importe_total = float(reparacion.presupuesto_importe or 0)
+
+        if total_pagado <= 0:
+            return jsonify({
+                "error": "sin_pago",
+                "mensaje": "No se ha registrado ningún pago para esta reparación. Registra al menos un cobro antes de entregar el equipo.",
+            }), 400
+
+        if importe_total > 0 and total_pagado < importe_total and not data.get("confirmar_pago_parcial"):
+            return jsonify({
+                "error": "pago_parcial",
+                "mensaje": f"Solo se han cobrado {total_pagado:.2f} € de {importe_total:.2f} € presupuestados. ¿Confirmas la entrega de todos modos?",
+                "total_pagado": round(total_pagado, 2),
+                "importe_total": round(importe_total, 2),
+                "requiere_confirmacion": True,
+            }), 409
+
         venia_de_no_reparable = reparacion.estado_actual == "no_reparable"
         reparacion.marcar_entregada(con_garantia=not venia_de_no_reparable)
     elif nuevo_estado == "completado":
