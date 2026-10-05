@@ -130,7 +130,8 @@ def solicitar_presupuesto_publico():
     """Formulario público para gente que TODAVÍA NO es cliente — sin
     necesitar ningún nº de orden ni historial previo. Si el teléfono ya
     coincide con un cliente existente, se reutiliza su ficha en vez de
-    duplicarla; si no, se crea una nueva. La usan tanto la web de
+    duplicarla; si no, se crea un CONTACTO (no es cliente hasta que se
+    pulsa "Convertir en cliente" en el panel). La usan tanto la web de
     Firztnet como la de Firztweb, así que hay que distinguir de cuál
     de las dos viene cada solicitud."""
     from app.models import Cliente
@@ -147,7 +148,7 @@ def solicitar_presupuesto_publico():
 
     cliente = Cliente.query.filter_by(telefono=telefono).first()
     if not cliente:
-        cliente = Cliente(nombre=nombre, telefono=telefono, email=data.get("email"))
+        cliente = Cliente(nombre=nombre, telefono=telefono, email=data.get("email"), es_contacto=True)
         db.session.add(cliente)
         db.session.flush()  # para tener ya su id antes de crear la solicitud
 

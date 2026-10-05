@@ -10,6 +10,7 @@ from sqlalchemy import inspect, text
 COLUMNAS_NUEVAS = {
     "clientes": [
         ("nif", "VARCHAR(20)"),
+        ("es_contacto", "BOOLEAN DEFAULT 0"),
     ],
     "firmas": [
         ("ip_aceptacion", "VARCHAR(45)"),

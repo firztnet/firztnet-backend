@@ -8,16 +8,35 @@ clientes_bp = Blueprint("clientes", __name__)
 
 
 def generar_codigo_cliente():
-    """Nº correlativo simple para identificar al cliente, ej: CLI-0001."""
-    ultimo = Cliente.query.order_by(Cliente.id.desc()).first()
-    siguiente = (ultimo.id + 1) if ultimo else 1
-    return f"CLI-{siguiente:04d}"
+    """Nº correlativo simple para identificar al cliente, ej: CLI-0001.
+
+    Se calcula a partir del código más alto que ya existe, no del id de la última fila:
+    como ahora hay contactos (sin código) mezclados en la misma tabla, el id ya no sirve
+    para esto, y daría códigos repetidos al convertir un contacto antiguo."""
+    maximo = 0
+    for (codigo,) in db.session.query(Cliente.codigo).filter(Cliente.codigo.like("CLI-%")).all():
+        try:
+            maximo = max(maximo, int(codigo[4:]))
+        except ValueError:
+            pass
+    return f"CLI-{maximo + 1:04d}"
+
+
+def convertir_en_cliente(cliente):
+    """Pasa un contacto a cliente de verdad (le da su código). Si ya lo era, no hace nada."""
+    if cliente.es_contacto:
+        cliente.es_contacto = False
+    if not cliente.codigo:
+        cliente.codigo = generar_codigo_cliente()
+    return cliente
 
 
 @clientes_bp.get("")
 def listar_clientes():
     q = request.args.get("q", "").strip()
     query = Cliente.query
+    if request.args.get("incluir_contactos") != "true":
+        query = query.filter(Cliente.es_contacto.isnot(True))
     if q:
         query = query.filter(Cliente.nombre.ilike(f"%{q}%"))
     clientes = query.order_by(Cliente.nombre).all()
@@ -30,6 +49,17 @@ def crear_cliente():
     if not data.get("nombre"):
         return jsonify({"error": "El nombre es obligatorio"}), 400
 
+    telefono = (data.get("telefono") or "").strip()
+    contacto = Cliente.query.filter_by(telefono=telefono, es_contacto=True).first() if telefono else None
+    if contacto:
+        # Ya había escrito por la web: lo convertimos en vez de crear una ficha duplicada.
+        contacto.nombre = data["nombre"]
+        contacto.email = data.get("email") or contacto.email
+        contacto.nif = data.get("nif") or contacto.nif
+        convertir_en_cliente(contacto)
+        db.session.commit()
+        return jsonify(contacto.to_dict()), 201
+
     cliente = Cliente(
         codigo=generar_codigo_cliente(),
         nombre=data["nombre"],
@@ -40,6 +70,15 @@ def crear_cliente():
     db.session.add(cliente)
     db.session.commit()
     return jsonify(cliente.to_dict()), 201
+
+
+@clientes_bp.post("/<int:cliente_id>/convertir")
+def convertir_cliente(cliente_id):
+    """Botón "Convertir en cliente" de las solicitudes que llegan desde las webs."""
+    cliente = Cliente.query.get_or_404(cliente_id)
+    convertir_en_cliente(cliente)
+    db.session.commit()
+    return jsonify(cliente.to_dict())
 
 
 def _resumen_alertas(cliente):

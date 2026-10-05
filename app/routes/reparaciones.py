@@ -72,6 +72,11 @@ def crear_reparacion():
     db.session.add(reparacion)
     db.session.commit()
 
+    if reparacion.cliente and reparacion.cliente.es_contacto:
+        from app.routes.clientes import convertir_en_cliente
+        convertir_en_cliente(reparacion.cliente)  # si ya le abres una reparación, es cliente
+        db.session.commit()
+
     if reparacion.urgente:
         from app.notificaciones import enviar_telegram
         cliente_nombre = reparacion.cliente.nombre if reparacion.cliente else "—"

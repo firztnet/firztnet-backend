@@ -47,9 +47,14 @@ with app.app_context():
 
     # Asigna código a clientes ya existentes que se crearon antes de que
     # este campo existiera (por si la base de datos ya tenía clientes).
-    sin_codigo = Cliente.query.filter(Cliente.codigo.is_(None)).order_by(Cliente.id).all()
+    # Los CONTACTOS (mensajes de las webs que todavía no son clientes) se saltan:
+    # su código se les da al pulsar "Convertir en cliente". Y se usa el mismo contador
+    # que el resto, no el id de la fila, para no repetir un código ya concedido
+    # (el código es único y un choque aquí impediría arrancar el servidor).
+    from app.routes.clientes import generar_codigo_cliente
+    sin_codigo = Cliente.query.filter(Cliente.codigo.is_(None), Cliente.es_contacto.isnot(True)).order_by(Cliente.id).all()
     for cliente in sin_codigo:
-        cliente.codigo = f"CLI-{cliente.id:04d}"
+        cliente.codigo = generar_codigo_cliente()
     if sin_codigo:
         db.session.commit()
 

@@ -38,7 +38,7 @@ def reporte_diario():
         Reparacion.fecha_entrega >= inicio, Reparacion.fecha_entrega < fin
     ).count()
     nuevos_clientes_hoy = Cliente.query.filter(
-        Cliente.creado_en >= inicio, Cliente.creado_en < fin
+        Cliente.creado_en >= inicio, Cliente.creado_en < fin, Cliente.es_contacto.isnot(True)
     ).count()
 
     return jsonify(

@@ -14,6 +14,9 @@ class Cliente(db.Model):
     email = db.Column(db.String(120))
     nif = db.Column(db.String(20))  # solo hace falta si pide factura
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    # True = alguien que escribió desde una web pero todavía no es cliente: no sale en la lista de
+    # Clientes ni cuenta como "cliente nuevo" hasta que se pulsa "Convertir en cliente".
+    es_contacto = db.Column(db.Boolean, default=False)
 
     reparaciones = db.relationship("Reparacion", backref="cliente", lazy=True)
 
@@ -25,6 +28,7 @@ class Cliente(db.Model):
             "telefono": self.telefono,
             "email": self.email,
             "nif": self.nif,
+            "es_contacto": bool(self.es_contacto),
         }
 
 
