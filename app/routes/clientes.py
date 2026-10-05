@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from flask import Blueprint, request, jsonify
 from app import db
-from app.models import Cliente
+from app.models import Cliente, NEGOCIOS_CLIENTE
 
 clientes_bp = Blueprint("clientes", __name__)
 
@@ -22,6 +22,18 @@ def generar_codigo_cliente():
     return f"CLI-{maximo + 1:04d}"
 
 
+def _leer_negocios(data):
+    """Devuelve (lista, error). Acepta una lista o un texto separado por comas."""
+    bruto = data.get("negocios")
+    if isinstance(bruto, str):
+        bruto = [n.strip() for n in bruto.split(",") if n.strip()]
+    if not isinstance(bruto, list) or not bruto:
+        return None, "Elige al menos un negocio"
+    if any(n not in NEGOCIOS_CLIENTE for n in bruto):
+        return None, "Negocio no reconocido"
+    return bruto, None
+
+
 def convertir_en_cliente(cliente):
     """Pasa un contacto a cliente de verdad (le da su código). Si ya lo era, no hace nada."""
     if cliente.es_contacto:
@@ -37,6 +49,9 @@ def listar_clientes():
     query = Cliente.query
     if request.args.get("incluir_contactos") != "true":
         query = query.filter(Cliente.es_contacto.isnot(True))
+    negocio = request.args.get("negocio")
+    if negocio in NEGOCIOS_CLIENTE:
+        query = query.filter(Cliente.negocios.like(f"%{negocio}%"))
     if q:
         query = query.filter(Cliente.nombre.ilike(f"%{q}%"))
     clientes = query.order_by(Cliente.nombre).all()
@@ -49,6 +64,12 @@ def crear_cliente():
     if not data.get("nombre"):
         return jsonify({"error": "El nombre es obligatorio"}), 400
 
+    negocios = ["firztnet"]
+    if "negocios" in data:
+        negocios, error = _leer_negocios(data)
+        if error:
+            return jsonify({"error": error}), 400
+
     telefono = (data.get("telefono") or "").strip()
     contacto = Cliente.query.filter_by(telefono=telefono, es_contacto=True).first() if telefono else None
     if contacto:
@@ -56,6 +77,7 @@ def crear_cliente():
         contacto.nombre = data["nombre"]
         contacto.email = data.get("email") or contacto.email
         contacto.nif = data.get("nif") or contacto.nif
+        contacto.poner_negocios(contacto.lista_negocios() + negocios)  # conserva por dónde escribió y suma lo que elijas
         convertir_en_cliente(contacto)
         db.session.commit()
         return jsonify(contacto.to_dict()), 201
@@ -67,6 +89,7 @@ def crear_cliente():
         email=data.get("email"),
         nif=data.get("nif"),
     )
+    cliente.poner_negocios(negocios)
     db.session.add(cliente)
     db.session.commit()
     return jsonify(cliente.to_dict()), 201
@@ -123,6 +146,11 @@ def actualizar_cliente(cliente_id):
     cliente.telefono = data.get("telefono", cliente.telefono)
     cliente.email = data.get("email", cliente.email)
     cliente.nif = data.get("nif", cliente.nif)
+    if "negocios" in data:
+        negocios, error = _leer_negocios(data)
+        if error:
+            return jsonify({"error": error}), 400
+        cliente.poner_negocios(negocios)
     db.session.commit()
     return jsonify(cliente.to_dict())
 

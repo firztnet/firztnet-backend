@@ -148,9 +148,11 @@ def solicitar_presupuesto_publico():
 
     cliente = Cliente.query.filter_by(telefono=telefono).first()
     if not cliente:
-        cliente = Cliente(nombre=nombre, telefono=telefono, email=data.get("email"), es_contacto=True)
+        cliente = Cliente(nombre=nombre, telefono=telefono, email=data.get("email"), es_contacto=True, negocios=negocio)
         db.session.add(cliente)
         db.session.flush()  # para tener ya su id antes de crear la solicitud
+    elif cliente.es_contacto:
+        cliente.anadir_negocio(negocio)  # sigue siendo un contacto: anotamos también por dónde más ha escrito
 
     solicitud = SolicitudServicio(cliente_id=cliente.id, mensaje=data.get("mensaje"), origen="nuevo_contacto", negocio=negocio)
     db.session.add(solicitud)

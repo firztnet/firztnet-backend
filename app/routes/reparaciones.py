@@ -72,9 +72,12 @@ def crear_reparacion():
     db.session.add(reparacion)
     db.session.commit()
 
-    if reparacion.cliente and reparacion.cliente.es_contacto:
-        from app.routes.clientes import convertir_en_cliente
-        convertir_en_cliente(reparacion.cliente)  # si ya le abres una reparación, es cliente
+    if reparacion.cliente:
+        cliente = reparacion.cliente
+        if cliente.es_contacto:
+            from app.routes.clientes import convertir_en_cliente
+            convertir_en_cliente(cliente)  # si ya le abres una reparación, es cliente
+        cliente.anadir_negocio("firztnet")  # y las reparaciones son de Firztnet (aunque viniera por Firztweb)
         db.session.commit()
 
     if reparacion.urgente:

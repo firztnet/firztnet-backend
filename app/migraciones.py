@@ -11,6 +11,7 @@ COLUMNAS_NUEVAS = {
     "clientes": [
         ("nif", "VARCHAR(20)"),
         ("es_contacto", "BOOLEAN DEFAULT 0"),
+        ("negocios", "VARCHAR(60) DEFAULT 'firztnet'"),
     ],
     "firmas": [
         ("ip_aceptacion", "VARCHAR(45)"),
@@ -78,6 +79,7 @@ def aplicar_migraciones(db):
     inspector = inspect(db.engine)
     tablas_existentes = inspector.get_table_names()
 
+    creadas = set()
     for tabla, columnas in COLUMNAS_NUEVAS.items():
         if tabla not in tablas_existentes:
             continue  # la tabla se crea entera con create_all(), no hace falta nada más
@@ -85,5 +87,34 @@ def aplicar_migraciones(db):
         for nombre_columna, tipo_sql in columnas:
             if nombre_columna not in columnas_actuales:
                 db.session.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {nombre_columna} {tipo_sql}"))
+                creadas.add((tabla, nombre_columna))
 
     db.session.commit()
+
+    # Solo el día que se crea la columna (nunca en reinicios posteriores, para no pisar lo que
+    # edites a mano después): se deduce a qué negocio pertenecía cada cliente que ya existía.
+    if ("clientes", "negocios") in creadas:
+        _rellenar_negocios_clientes(db)
+
+
+def _rellenar_negocios_clientes(db):
+    """Cliente con reparaciones -> Firztnet. Cliente que escribió por Firztweb -> Firztweb.
+    Los dos casos a la vez -> ambos. Sin ninguna pista -> Firztnet (lo que eran todos hasta ahora)."""
+    try:
+        filas = db.session.execute(text(
+            "SELECT c.id, "
+            "EXISTS(SELECT 1 FROM reparaciones r WHERE r.cliente_id = c.id), "
+            "EXISTS(SELECT 1 FROM solicitudes_servicio s WHERE s.cliente_id = c.id AND s.negocio = 'firztweb') "
+            "FROM clientes c"
+        )).fetchall()
+        for cliente_id, tiene_reparaciones, pidio_web in filas:
+            if pidio_web and tiene_reparaciones:
+                valor = "firztnet,firztweb"
+            elif pidio_web:
+                valor = "firztweb"
+            else:
+                valor = "firztnet"
+            db.session.execute(text("UPDATE clientes SET negocios = :v WHERE id = :i"), {"v": valor, "i": cliente_id})
+        db.session.commit()
+    except Exception:
+        db.session.rollback()  # un fallo aquí nunca debe impedir que el servidor arranque

@@ -5,6 +5,10 @@ from app import db
 GARANTIA_MESES = 6
 
 
+# Negocios a los que puede pertenecer un cliente (en este orden canónico).
+NEGOCIOS_CLIENTE = ("firztnet", "firztweb")
+
+
 class Cliente(db.Model):
     __tablename__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
@@ -17,8 +21,23 @@ class Cliente(db.Model):
     # True = alguien que escribió desde una web pero todavía no es cliente: no sale en la lista de
     # Clientes ni cuenta como "cliente nuevo" hasta que se pulsa "Convertir en cliente".
     es_contacto = db.Column(db.Boolean, default=False)
+    # Etiquetas de negocio separadas por coma: "firztnet", "firztweb" o "firztnet,firztweb".
+    # Una misma persona puede ser cliente de los dos (te trae un portátil y luego te pide una web).
+    negocios = db.Column(db.String(60), default="firztnet")
 
     reparaciones = db.relationship("Reparacion", backref="cliente", lazy=True)
+
+    def lista_negocios(self):
+        presentes = {n.strip() for n in (self.negocios or "firztnet").split(",") if n.strip()}
+        return [n for n in NEGOCIOS_CLIENTE if n in presentes] or ["firztnet"]
+
+    def poner_negocios(self, lista):
+        presentes = set(lista)
+        self.negocios = ",".join(n for n in NEGOCIOS_CLIENTE if n in presentes) or "firztnet"
+
+    def anadir_negocio(self, negocio):
+        if negocio in NEGOCIOS_CLIENTE:
+            self.poner_negocios(self.lista_negocios() + [negocio])
 
     def to_dict(self):
         return {
@@ -29,6 +48,7 @@ class Cliente(db.Model):
             "email": self.email,
             "nif": self.nif,
             "es_contacto": bool(self.es_contacto),
+            "negocios": self.lista_negocios(),
         }
 
 
