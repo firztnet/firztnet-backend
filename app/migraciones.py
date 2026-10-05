@@ -4,6 +4,8 @@ crea tablas que todavía no existen. Como la base de datos ahora es
 permanente (volumen en Railway), cada vez que añadimos un campo nuevo
 a un modelo hace falta esta pequeña migración para que se refleje en
 la tabla real, sin perder los datos que ya había."""
+from datetime import datetime
+
 from sqlalchemy import inspect, text
 
 # columna -> definición SQL a usar si hay que crearla
@@ -54,6 +56,7 @@ COLUMNAS_NUEVAS = {
         ("coste_almacenamiento_diario", "NUMERIC(10, 2) DEFAULT 1"),
         ("telegram_chat_id", "VARCHAR(40)"),
         ("telefono_bizum", "VARCHAR(20)"),
+        ("visitas_vistas_hasta", "DATETIME"),
     ],
     "reparaciones": [
         ("token_seguimiento", "VARCHAR(40)"),
@@ -95,6 +98,15 @@ def aplicar_migraciones(db):
     # edites a mano después): se deduce a qué negocio pertenecía cada cliente que ya existía.
     if ("clientes", "negocios") in creadas:
         _rellenar_negocios_clientes(db)
+
+    # Al activarse el aviso de visitas, lo anterior cuenta como ya visto (si no, la primera vez
+    # la campana te avisaría de todas las visitas de la historia).
+    if ("configuracion_negocio", "visitas_vistas_hasta") in creadas:
+        try:
+            db.session.execute(text("UPDATE configuracion_negocio SET visitas_vistas_hasta = :ahora"), {"ahora": datetime.utcnow()})
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
 
 def _rellenar_negocios_clientes(db):

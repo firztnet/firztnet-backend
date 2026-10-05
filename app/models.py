@@ -466,6 +466,9 @@ class ConfiguracionNegocio(db.Model):
     coste_almacenamiento_diario = db.Column(db.Numeric(10, 2), default=1)  # € por día, equipos sin recoger
     telegram_chat_id = db.Column(db.String(40))  # tu chat_id, para recibir avisos internos
     telefono_bizum = db.Column(db.String(20))  # número al que los clientes te pueden mandar un Bizum (sin proveedor de pago contratado)
+    # Hasta qué momento has visto la actividad de tus webs. Lo que llegue después es "nuevo" en la campana
+    # y en la pantalla Visitas web. Se guarda aquí (y no en el navegador) para que valga igual en el móvil y el ordenador.
+    visitas_vistas_hasta = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         return {
