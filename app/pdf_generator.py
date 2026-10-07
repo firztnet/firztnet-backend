@@ -252,7 +252,15 @@ def generar_pdf_factura(factura, reparacion, cliente, negocio):
     c = canvas.Canvas(buffer, pagesize=A5)
     ancho, alto = A5
     margen = 14 * mm
-    _dibujar_cabecera(c, negocio, ancho, alto, margen, subtitulo=f"NIF: {negocio.nif or '—'}")
+    # Datos del emisor: los copiados en la factura al emitirla. Solo si es muy antigua y no
+    # los tiene, se usan los de Ajustes. Así una factura emitida no cambia nunca.
+    emisor_nombre = factura.emisor_nombre or negocio.nombre_negocio or "Firztnet"
+    emisor_nif = factura.emisor_nif or negocio.nif
+    emisor_direccion = factura.emisor_direccion or negocio.direccion
+    emisor_telefono = factura.emisor_telefono if factura.emisor_nif else negocio.telefono
+    emisor_email = factura.emisor_email if factura.emisor_nif else negocio.email
+
+    _dibujar_cabecera(c, negocio, ancho, alto, margen, subtitulo=f"NIF: {emisor_nif or '—'}")
 
     y = alto - 32 * mm
     c.setFillColor(GRIS_TEXTO)
@@ -277,9 +285,29 @@ def generar_pdf_factura(factura, reparacion, cliente, negocio):
 
     c.setFont("Helvetica", 8.5)
     c.setFillColor(GRIS_CLARO)
-    c.drawString(margen, y, f"Fecha de emisión: {_fecha(factura.fecha_emision)}")
+    from app.horario import a_madrid
+    c.drawString(margen, y, f"Fecha de emisión: {_fecha(a_madrid(factura.fecha_emision) if factura.fecha_emision else None)}")
     c.drawRightString(ancho - margen, y, f"Nº de orden: {reparacion.numero_orden}")
     y -= 10 * mm
+
+    # Datos de quien emite la factura (obligatorios: nombre, NIF y dirección). Antes, con el
+    # logo en la cabecera, el NIF del emisor no aparecía en ningún sitio de la factura.
+    c.setFillColor(GRIS_CLARO)
+    c.setFont("Helvetica", 8)
+    c.drawString(margen, y, "EMITIDA POR")
+    y -= 5 * mm
+    c.setFillColor(GRIS_TEXTO)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margen, y, emisor_nombre[:60])
+    y -= 5 * mm
+    c.setFont("Helvetica", 9)
+    c.drawString(margen, y, f"NIF: {emisor_nif or '—'}")
+    y -= 4.5 * mm
+    if emisor_direccion:
+        for linea in _partir_texto(emisor_direccion, 70)[:2]:
+            c.drawString(margen, y, linea)
+            y -= 4.5 * mm
+    y -= 5.5 * mm
 
     # Datos del cliente
     c.setFillColor(GRIS_CLARO)
@@ -334,7 +362,7 @@ def generar_pdf_factura(factura, reparacion, cliente, negocio):
     y -= 1.5 * mm
     total_linea("TOTAL", f"{float(factura.total):,.2f} €", negrita=True)
 
-    contacto = " · ".join(filter(None, [negocio.direccion, negocio.telefono, negocio.email]))
+    contacto = " · ".join(filter(None, [emisor_direccion, emisor_telefono, emisor_email]))
     if contacto:
         c.setFillColor(GRIS_CLARO)
         c.setFont("Helvetica", 7)

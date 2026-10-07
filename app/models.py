@@ -9,6 +9,13 @@ GARANTIA_MESES = 6
 NEGOCIOS_CLIENTE = ("firztnet", "firztweb")
 
 
+
+def _iso_utc(fecha):
+    """Las fechas-hora se guardan en hora universal (UTC) sin zona. Se envían al panel
+    con una "Z" al final para que el navegador sepa que son UTC y las pase solo a la
+    hora de Madrid (sin la Z, las tomaba como si ya fueran de Madrid: 1-2 horas de error)."""
+    return (fecha.isoformat() + "Z") if fecha else None
+
 class Cliente(db.Model):
     __tablename__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
@@ -183,16 +190,16 @@ class Reparacion(db.Model):
             "estado_entrada": self.estado_entrada,
             "estado_actual": self.estado_actual,
             "motivo_no_reparable": self.motivo_no_reparable,
-            "fecha_recepcion": self.fecha_recepcion.isoformat() if self.fecha_recepcion else None,
+            "fecha_recepcion": _iso_utc(self.fecha_recepcion),
             "fecha_estimada": self.fecha_estimada.isoformat() if self.fecha_estimada else None,
-            "fecha_entrega": self.fecha_entrega.isoformat() if self.fecha_entrega else None,
-            "fecha_listo": self.fecha_listo.isoformat() if self.fecha_listo else None,
-            "fecha_fin_garantia": self.fecha_fin_garantia.isoformat() if self.fecha_fin_garantia else None,
+            "fecha_entrega": _iso_utc(self.fecha_entrega),
+            "fecha_listo": _iso_utc(self.fecha_listo),
+            "fecha_fin_garantia": _iso_utc(self.fecha_fin_garantia),
             "token_seguimiento": self.token_seguimiento,
             "presupuesto_importe": float(self.presupuesto_importe) if self.presupuesto_importe is not None else None,
             "presupuesto_descripcion": self.presupuesto_descripcion,
             "presupuesto_estado": self.presupuesto_estado,
-            "presupuesto_fecha": self.presupuesto_fecha.isoformat() if self.presupuesto_fecha else None,
+            "presupuesto_fecha": _iso_utc(self.presupuesto_fecha),
         }
 
 
@@ -214,7 +221,7 @@ class RegistroRGPD(db.Model):
             "cliente_id": self.cliente_id,
             "nombre_en_el_momento": self.nombre_en_el_momento,
             "motivo": self.motivo,
-            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "fecha": _iso_utc(self.fecha),
         }
 
 
@@ -251,7 +258,7 @@ class Venta(db.Model):
             "cobrado": bool(self.cobrado),
             "enlace_nota": self.enlace_nota,
             "fecha": self.fecha.isoformat() if self.fecha else None,
-            "fecha_creacion": self.fecha_creacion.isoformat() if self.fecha_creacion else None,
+            "fecha_creacion": _iso_utc(self.fecha_creacion),
         }
 
 
@@ -274,7 +281,7 @@ class VisitaWeb(db.Model):
             "ruta": self.ruta,
             "referido": self.referido,
             "dispositivo": self.dispositivo,
-            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "fecha": _iso_utc(self.fecha),
         }
 
 
@@ -295,7 +302,7 @@ class EventoWeb(db.Model):
             "sitio": self.sitio,
             "tipo": self.tipo,
             "etiqueta": self.etiqueta,
-            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "fecha": _iso_utc(self.fecha),
         }
 
 
@@ -322,7 +329,7 @@ class SolicitudServicio(db.Model):
             "cliente_id": self.cliente_id,
             "cliente": self.cliente.to_dict() if self.cliente else None,
             "mensaje": self.mensaje,
-            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "fecha": _iso_utc(self.fecha),
             "atendida": bool(self.atendida),
             "origen": self.origen or "existente",
             "negocio": self.negocio or "firztnet",
@@ -364,8 +371,8 @@ class RMA(db.Model):
             "estado": self.estado,
             "resultado": self.resultado,
             "importe_recuperado": float(self.importe_recuperado) if self.importe_recuperado is not None else None,
-            "fecha_envio": self.fecha_envio.isoformat() if self.fecha_envio else None,
-            "fecha_resolucion": self.fecha_resolucion.isoformat() if self.fecha_resolucion else None,
+            "fecha_envio": _iso_utc(self.fecha_envio),
+            "fecha_resolucion": _iso_utc(self.fecha_resolucion),
         }
 
 
@@ -412,6 +419,12 @@ class MovimientoFinanciero(db.Model):
     monto = db.Column(db.Numeric(10, 2), nullable=False)
     metodo_pago = db.Column(db.String(30))  # efectivo, tarjeta, transferencia
     fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    # Anulaciones: un movimiento nunca se borra. Si estaba mal, se marca como anulado y se
+    # crea otro igual con el importe en negativo que lo compensa (así cuadran los totales
+    # y queda constancia de qué se corrigió, cuándo y por qué).
+    anulado = db.Column(db.Boolean, default=False)
+    motivo_anulacion = db.Column(db.String(200))
+    anula_a_id = db.Column(db.Integer, db.ForeignKey("movimientos_financieros.id"), nullable=True)
 
     def to_dict(self):
         return {
@@ -421,7 +434,10 @@ class MovimientoFinanciero(db.Model):
             "concepto": self.concepto,
             "monto": float(self.monto or 0),
             "metodo_pago": self.metodo_pago,
-            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "fecha": _iso_utc(self.fecha),
+            "anulado": bool(self.anulado),
+            "motivo_anulacion": self.motivo_anulacion,
+            "anula_a_id": self.anula_a_id,
         }
 
 
@@ -521,6 +537,13 @@ class Factura(db.Model):
     cliente_nombre_congelado = db.Column(db.String(120))  # copia del nombre en el momento de emitirla
     cliente_nif_congelado = db.Column(db.String(20))  # copia del NIF en el momento de emitirla — así, si el
     # cliente pide luego borrar sus datos (RGPD), la factura sigue siendo correcta y legible para Hacienda
+    # Lo mismo con TUS datos (el emisor): se copian al emitirla, para que la factura no
+    # cambie nunca aunque luego cambies el nombre, el NIF o la dirección en Ajustes.
+    emisor_nombre = db.Column(db.String(120))
+    emisor_nif = db.Column(db.String(20))
+    emisor_direccion = db.Column(db.String(200))
+    emisor_telefono = db.Column(db.String(30))
+    emisor_email = db.Column(db.String(120))
 
     reparacion = db.relationship("Reparacion")
     cliente = db.relationship("Cliente")
@@ -537,13 +560,16 @@ class Factura(db.Model):
             "iva_pct": float(self.iva_pct),
             "iva_importe": float(self.iva_importe),
             "total": float(self.total),
-            "fecha_emision": self.fecha_emision.isoformat() if self.fecha_emision else None,
+            "fecha_emision": _iso_utc(self.fecha_emision),
             "es_rectificativa": bool(self.es_rectificativa),
             "factura_original_id": self.factura_original_id,
             "factura_original_numero": self.factura_original.numero if self.factura_original else None,
             "motivo_rectificacion": self.motivo_rectificacion,
             "cliente_nombre_congelado": self.cliente_nombre_congelado,
             "cliente_nif_congelado": self.cliente_nif_congelado,
+            "emisor_nombre": self.emisor_nombre,
+            "emisor_nif": self.emisor_nif,
+            "emisor_direccion": self.emisor_direccion,
         }
 
 
@@ -569,7 +595,7 @@ class Firma(db.Model):
             "nombre_firmante": self.nombre_firmante,
             "nombre_archivo": self.nombre_archivo,
             "ip_aceptacion": self.ip_aceptacion,
-            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "fecha": _iso_utc(self.fecha),
         }
 
 
@@ -608,8 +634,8 @@ class SesionTrabajo(db.Model):
         return {
             "id": self.id,
             "reparacion_id": self.reparacion_id,
-            "inicio": self.inicio.isoformat() if self.inicio else None,
-            "fin": self.fin.isoformat() if self.fin else None,
+            "inicio": _iso_utc(self.inicio),
+            "fin": _iso_utc(self.fin),
         }
 
 
@@ -630,7 +656,7 @@ class ArticuloConocimiento(db.Model):
             "titulo": self.titulo,
             "contenido": self.contenido,
             "categoria": self.categoria,
-            "creado_en": self.creado_en.isoformat() if self.creado_en else None,
+            "creado_en": _iso_utc(self.creado_en),
         }
 
 
@@ -677,7 +703,7 @@ class FotoReparacion(db.Model):
             "id": self.id,
             "reparacion_id": self.reparacion_id,
             "nombre_archivo": self.nombre_archivo,
-            "fecha_subida": self.fecha_subida.isoformat() if self.fecha_subida else None,
+            "fecha_subida": _iso_utc(self.fecha_subida),
         }
 
 
@@ -697,5 +723,18 @@ class Comprobante(db.Model):
             "tipo": self.tipo,
             "url_pdf": self.url_pdf,
             "enlace_seguimiento": self.enlace_seguimiento,
-            "fecha_generado": self.fecha_generado.isoformat() if self.fecha_generado else None,
+            "fecha_generado": _iso_utc(self.fecha_generado),
         }
+
+
+class OrdenEliminada(db.Model):
+    """Registro de las reparaciones borradas con el botón "Eliminar": qué orden era,
+    de quién y cuándo se borró. Sirve de historial y, además, para que su número de
+    orden no se vuelva a usar nunca (si no, la siguiente orden heredaría el número de
+    una borrada y podría confundirse con papeles o etiquetas ya entregados)."""
+    __tablename__ = "ordenes_eliminadas"
+    id = db.Column(db.Integer, primary_key=True)
+    numero_orden = db.Column(db.String(20), nullable=False, index=True)
+    cliente_nombre = db.Column(db.String(120))
+    equipo = db.Column(db.String(200))
+    fecha_eliminacion = db.Column(db.DateTime, default=datetime.utcnow)

@@ -8,10 +8,34 @@ from app.pdf_generator import generar_pdf_factura
 facturas_bp = Blueprint("facturas", __name__)
 
 
+def datos_emisor_incompletos(negocio):
+    """Una factura tiene que llevar el nombre, el NIF y la dirección de quien la emite.
+    Devuelve el mensaje de error si falta algo, o None si está todo."""
+    faltan = [que for que, valor in (("el NIF", negocio.nif), ("la dirección", negocio.direccion), ("el nombre del negocio", negocio.nombre_negocio)) if not (valor or "").strip()]
+    if faltan:
+        return "Para emitir facturas tienes que rellenar en Ajustes " + " y ".join(faltan) + ". Una factura sin esos datos no es válida."
+    return None
+
+
+def congelar_emisor(factura, negocio):
+    """Copia TUS datos de negocio en la factura en el momento de emitirla."""
+    factura.emisor_nombre = negocio.nombre_negocio
+    factura.emisor_nif = negocio.nif
+    factura.emisor_direccion = negocio.direccion
+    factura.emisor_telefono = negocio.telefono
+    factura.emisor_email = negocio.email
+
+
+def _anio_madrid():
+    # Año en hora de Madrid: la primera factura del 1 de enero a las 00:30 ya es del año nuevo.
+    from app.horario import hoy_madrid
+    return hoy_madrid().year
+
+
 def generar_numero_factura():
     """Nº correlativo por año, ej: 2026-F0001. Por ley debe ser
     correlativo y sin huecos — nunca borres una factura ya emitida."""
-    anio = datetime.utcnow().year
+    anio = _anio_madrid()
     ultima = (
         Factura.query.filter(Factura.numero.like(f"{anio}-F%"))
         .order_by(Factura.id.desc())
@@ -27,7 +51,7 @@ def generar_numero_rectificativa():
     """Serie separada para las rectificativas, ej: 2026-R0001 — así se
     ve a simple vista cuáles son correcciones, sin mezclarse con la
     numeración normal (que debe quedar intacta, sin huecos)."""
-    anio = datetime.utcnow().year
+    anio = _anio_madrid()
     ultima = (
         Factura.query.filter(Factura.numero.like(f"{anio}-R%"))
         .order_by(Factura.id.desc())
@@ -56,6 +80,9 @@ def emitir_factura():
         return jsonify({"error": "No hay ningún cobro registrado en esta reparación todavía"}), 400
 
     negocio = ConfiguracionNegocio.obtener()
+    error_emisor = datos_emisor_incompletos(negocio)
+    if error_emisor:
+        return jsonify({"error": error_emisor}), 400
     iva_pct = negocio.iva_pct if negocio.iva_pct is not None else Decimal("21")
 
     # Se asume que el total cobrado ya incluye el IVA (precio final al
@@ -76,6 +103,7 @@ def emitir_factura():
         cliente_nombre_congelado=reparacion.cliente.nombre,
         cliente_nif_congelado=reparacion.cliente.nif,
     )
+    congelar_emisor(factura, negocio)
     db.session.add(factura)
     db.session.commit()
     return jsonify(factura.to_dict()), 201
@@ -111,6 +139,18 @@ def rectificar_factura(factura_id):
         return jsonify({"error": "Indica el motivo de la rectificación (obligatorio para el registro)"}), 400
 
     negocio = ConfiguracionNegocio.obtener()
+    error_emisor = datos_emisor_incompletos(negocio)
+    if error_emisor:
+        return jsonify({"error": error_emisor}), 400
+
+    # Datos del cliente para la rectificativa: los ACTUALES de su ficha (si la rectificas
+    # porque su NIF estaba mal, aquí ya sale el NIF corregido). Si el cliente fue borrado
+    # por RGPD, se mantienen los de la factura original.
+    cliente = original.cliente
+    if cliente and not (cliente.nombre or "").startswith("Cliente eliminado (RGPD"):
+        nombre_cliente, nif_cliente = cliente.nombre, cliente.nif
+    else:
+        nombre_cliente, nif_cliente = original.cliente_nombre_congelado, original.cliente_nif_congelado
 
     if data.get("nuevo_total") is not None:
         nuevo_total = Decimal(str(data["nuevo_total"]))
@@ -136,9 +176,10 @@ def rectificar_factura(factura_id):
         es_rectificativa=True,
         factura_original_id=original.id,
         motivo_rectificacion=data["motivo"],
-        cliente_nombre_congelado=original.cliente_nombre_congelado,
-        cliente_nif_congelado=original.cliente_nif_congelado,
+        cliente_nombre_congelado=nombre_cliente,
+        cliente_nif_congelado=nif_cliente,
     )
+    congelar_emisor(rectificativa, negocio)
     db.session.add(rectificativa)
     db.session.commit()
     return jsonify(rectificativa.to_dict()), 201

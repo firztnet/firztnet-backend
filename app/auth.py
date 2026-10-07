@@ -19,9 +19,11 @@ def generar_token(username, secret_key):
 def verificar_credenciales(username, password, config):
     """Comparación segura (evita timing attacks) del usuario/contraseña
     configurados en las variables de entorno."""
-    return hmac.compare_digest(username or "", config["ADMIN_USERNAME"]) and hmac.compare_digest(
-        password or "", config["ADMIN_PASSWORD"]
-    )
+    # Se comparan como bytes: así funcionan también contraseñas con ñ o acentos
+    # (comparando texto, Python daba un error interno en vez de "incorrecta").
+    usuario_ok = hmac.compare_digest((username or "").encode("utf-8"), config["ADMIN_USERNAME"].encode("utf-8"))
+    clave_ok = hmac.compare_digest((password or "").encode("utf-8"), config["ADMIN_PASSWORD"].encode("utf-8"))
+    return usuario_ok and clave_ok
 
 
 def registrar_proteccion(app):

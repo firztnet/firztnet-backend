@@ -39,7 +39,8 @@ def crear_venta():
     if tipo not in TIPOS_VALIDOS:
         return jsonify({"error": "Tipo de venta no reconocido"}), 400
 
-    fecha = datetime.utcnow().date()
+    from app.horario import hoy_madrid
+    fecha = hoy_madrid()
     if data.get("fecha"):
         try:
             fecha = datetime.strptime(data["fecha"], "%Y-%m-%d").date()

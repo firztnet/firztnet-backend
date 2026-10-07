@@ -30,9 +30,91 @@ def _origenes_permitidos():
     return origenes
 
 
+CLAVES_POR_DEFECTO = {
+    "SECRET_KEY": "cambia-esta-clave-en-produccion",
+    "ADMIN_PASSWORD": "cambia-esta-contraseña",
+}
+
+
+def en_railway():
+    """Railway pone estas variables él solo en cada despliegue."""
+    return any(os.environ.get(v) for v in ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "RAILWAY_PROJECT_ID"))
+
+
+def _exigir_claves_propias(app):
+    """En Railway, el servidor NO arranca si falta SECRET_KEY o ADMIN_PASSWORD
+    (o si siguen con el valor de ejemplo del código). Con la SECRET_KEY de
+    ejemplo, cualquiera que la conozca podría fabricarse un acceso al panel
+    sin saber tu contraseña. Mejor que no arranque a que arranque abierto."""
+    if not en_railway():
+        return  # en tu ordenador se puede probar con las de ejemplo
+    problemas = []
+    for nombre, valor_ejemplo in CLAVES_POR_DEFECTO.items():
+        valor = app.config.get(nombre) or ""
+        if not valor or valor == valor_ejemplo:
+            problemas.append(f"{nombre} no está configurada en Railway (se está usando la de ejemplo del código)")
+    if problemas:
+        raise RuntimeError(
+            "El servidor no arranca por seguridad: " + "; ".join(problemas)
+            + ". Añádelas en Railway > tu servicio > Variables y vuelve a desplegar."
+        )
+
+
+def comprobar_almacenamiento(app):
+    """Al arrancar en Railway, comprueba que la base de datos, las fotos y las
+    firmas se guardan en el disco permanente (el "volumen"). Si algo está fuera,
+    se borraría en el siguiente despliegue: en ese caso te avisa por Telegram.
+    No para el servidor; solo avisa."""
+    if not en_railway():
+        return
+    from app.routes.fotos import FOTOS_DIR
+    from app.firmas import FIRMAS_DIR
+
+    volumen = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+    uri = app.config["SQLALCHEMY_DATABASE_URI"]
+    rutas = {"las fotos": FOTOS_DIR, "las firmas": FIRMAS_DIR}
+    if uri.startswith("sqlite"):
+        rutas["la base de datos"] = uri[len("sqlite:///"):]  # "sqlite:////data/x.db" -> "/data/x.db"
+
+    if not volumen:
+        fuera = list(rutas.keys())
+        motivo = "porque este servicio no tiene ningún disco permanente (volumen) conectado"
+    else:
+        raiz = os.path.abspath(volumen)
+        fuera = [que for que, ruta in rutas.items() if not os.path.abspath(ruta).startswith(raiz + os.sep) and os.path.abspath(ruta) != raiz]
+        motivo = f"porque están fuera del disco permanente ({volumen})"
+
+    if len(app.config.get("SECRET_KEY") or "") < 32:
+        from app.notificaciones import enviar_telegram
+        try:
+            enviar_telegram("⚠️ AVISO DE SEGURIDAD de Firztnet: tu SECRET_KEY de Railway es corta. "
+                            "Conviene cambiarla por una de al menos 32 caracteres (tendrás que volver a iniciar sesión).")
+        except Exception:
+            pass
+
+    if fuera:
+        from app.notificaciones import enviar_telegram
+        try:
+            enviar_telegram(
+                "⚠️ AVISO DE CONFIGURACIÓN de Firztnet: " + ", ".join(fuera)
+                + f" se perderían en el próximo despliegue, {motivo}. "
+                "Revisa en Railway las variables DATABASE_URL, FOTOS_DIR y FIRMAS_DIR."
+            )
+        except Exception:
+            pass
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object("config.Config")
+    _exigir_claves_propias(app)
+
+    # Railway pasa cada petición por su propio "proxy": sin esto, el servidor ve
+    # la misma IP (la del proxy) para todo el mundo, y los límites de intentos
+    # (login, seguimiento público) se compartían entre todos — un desconocido
+    # podía dejarte a TI sin poder entrar. ProxyFix toma la IP real que añade Railway.
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
     db.init_app(app)
     CORS(app, origins=_origenes_permitidos())  # solo tu panel (y localhost en desarrollo) puede llamar a esta API
@@ -154,12 +236,27 @@ def _programar_backup_automatico(app):
     def _tarea_backup():
         with app.app_context():
             from app.backup import crear_backup_zip
-            from app.notificaciones import enviar_documento_telegram
+            from app.notificaciones import enviar_documento_telegram, enviar_telegram
             try:
                 nombre_archivo, buffer = crear_backup_zip()
-                enviar_documento_telegram(nombre_archivo, buffer.read(), caption=f"📦 Backup automático diario — {nombre_archivo}")
-            except Exception:
-                pass  # un fallo en el backup automático no debe tumbar el servidor
+                contenido = buffer.read()
+                tamano_mb = len(contenido) / (1024 * 1024)
+                if tamano_mb > 49:
+                    # Telegram no deja mandar archivos de más de 50 MB.
+                    enviar_telegram(
+                        f"❌ El backup automático de hoy NO se ha enviado: pesa {tamano_mb:.0f} MB y Telegram "
+                        "solo admite 50 MB. Descárgalo a mano desde el panel (Ajustes > Copia de seguridad)."
+                    )
+                    return
+                ok, detalle = enviar_documento_telegram(nombre_archivo, contenido, caption=f"📦 Backup automático diario — {nombre_archivo}")
+                if not ok:
+                    enviar_telegram(f"❌ El backup automático de hoy no se pudo enviar: {detalle}")
+            except Exception as e:
+                # Un fallo en el backup nunca debe tumbar el servidor, pero ya no se calla: te avisa.
+                try:
+                    enviar_telegram(f"❌ El backup automático de hoy ha FALLADO: {e}")
+                except Exception:
+                    pass
 
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(_tarea_backup, "cron", hour=4, minute=0)

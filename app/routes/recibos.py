@@ -11,9 +11,9 @@ def recibo_de_reparacion(rep_id):
     completo). No hace falta generarlo antes — se construye al momento
     con los movimientos ya registrados."""
     reparacion = Reparacion.query.get_or_404(rep_id)
-    ingresos = MovimientoFinanciero.query.filter_by(reparacion_id=rep_id, tipo="ingreso").order_by(
-        MovimientoFinanciero.fecha
-    ).all()
+    ingresos = MovimientoFinanciero.query.filter_by(reparacion_id=rep_id, tipo="ingreso").filter(
+        MovimientoFinanciero.anulado.isnot(True), MovimientoFinanciero.anula_a_id.is_(None)
+    ).order_by(MovimientoFinanciero.fecha).all()  # los cobros anulados (y su corrección) no salen en el recibo
     if not ingresos:
         return jsonify({"error": "Todavía no hay ningún cobro registrado en esta reparación"}), 400
 
@@ -29,6 +29,8 @@ def recibo_de_un_pago(movimiento_id):
     movimiento = MovimientoFinanciero.query.get_or_404(movimiento_id)
     if movimiento.tipo != "ingreso":
         return jsonify({"error": "Ese movimiento no es un cobro"}), 400
+    if movimiento.anulado or movimiento.anula_a_id:
+        return jsonify({"error": "Ese cobro está anulado: no se puede hacer recibo"}), 400
     reparacion = Reparacion.query.get_or_404(movimiento.reparacion_id)
 
     buffer = generar_pdf_recibo(reparacion, [movimiento])

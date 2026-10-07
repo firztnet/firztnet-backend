@@ -123,7 +123,7 @@ def _resumen_alertas(cliente):
                 "id": rep.id,
                 "numero_orden": rep.numero_orden,
                 "equipo": rep.equipo,
-                "fecha_fin_garantia": rep.fecha_fin_garantia.isoformat(),
+                "fecha_fin_garantia": rep.fecha_fin_garantia.isoformat() + "Z",
             })
 
     return {"sin_cobrar": sin_cobrar, "en_garantia": en_garantia}

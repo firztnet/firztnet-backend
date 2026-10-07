@@ -22,6 +22,27 @@ ETIQUETAS_ESTADO = {
 
 MENSAJE_NO_ENCONTRADO = "No se encontró ninguna reparación con esos datos"
 
+# Límites del formulario público (para que un robot no pueda llenar la base de datos)
+MAX_NOMBRE = 100
+MAX_EMAIL = 120
+MAX_MENSAJE = 2000
+CAMPO_TRAMPA = "sitio_web"  # campo oculto en las webs: una persona nunca lo rellena, un robot sí
+
+
+def _avisar_solicitud(titulo, nombre, telefono, mensaje, negocio=None):
+    """Te manda un Telegram cuando alguien escribe desde la web o desde su página de seguimiento."""
+    from app.notificaciones import enviar_telegram
+    texto = f"📩 {titulo}"
+    if negocio:
+        texto += f" ({'Firztweb' if negocio == 'firztweb' else 'Firztnet'})"
+    texto += f"\n👤 {nombre or '—'}\n📞 {telefono or '—'}"
+    if mensaje:
+        texto += f"\n💬 {mensaje[:300]}{'…' if len(mensaje) > 300 else ''}"
+    try:
+        enviar_telegram(texto)
+    except Exception:
+        pass  # si Telegram falla, la solicitud se guarda igual
+
 
 def _enlace_whatsapp_negocio(telefono, numero_orden):
     if not telefono:
@@ -49,10 +70,10 @@ def _respuesta_seguimiento(reparacion):
         "equipo": reparacion.equipo,
         "estado_actual": reparacion.estado_actual,
         "estado_label": ETIQUETAS_ESTADO.get(reparacion.estado_actual, reparacion.estado_actual),
-        "fecha_recepcion": reparacion.fecha_recepcion.isoformat() if reparacion.fecha_recepcion else None,
+        "fecha_recepcion": (reparacion.fecha_recepcion.isoformat() + "Z") if reparacion.fecha_recepcion else None,
         "fecha_estimada": reparacion.fecha_estimada.isoformat() if reparacion.fecha_estimada else None,
-        "fecha_entrega": reparacion.fecha_entrega.isoformat() if reparacion.fecha_entrega else None,
-        "fecha_fin_garantia": reparacion.fecha_fin_garantia.isoformat() if reparacion.fecha_fin_garantia else None,
+        "fecha_entrega": (reparacion.fecha_entrega.isoformat() + "Z") if reparacion.fecha_entrega else None,
+        "fecha_fin_garantia": (reparacion.fecha_fin_garantia.isoformat() + "Z") if reparacion.fecha_fin_garantia else None,
         "motivo_no_reparable": reparacion.motivo_no_reparable if reparacion.estado_actual == "no_reparable" else None,
         "enlace_whatsapp_negocio": _enlace_whatsapp_negocio(negocio.telefono, reparacion.numero_orden),
         "presupuesto": {
@@ -97,9 +118,16 @@ def buscar_por_numero_y_dato():
     id_normalizado = identificador.upper().replace(" ", "").replace("-", "")
     coincide_nif = bool(cliente.nif) and cliente.nif.upper().replace(" ", "").replace("-", "") == id_normalizado
 
+    # El teléfono tiene que coincidir ENTERO (se comparan los 9 últimos dígitos,
+    # para que dé igual si el cliente pone el +34 o no). Antes bastaba con que lo
+    # escrito "estuviera dentro" del teléfono, y con un solo dígito ya entraba.
     solo_digitos_input = "".join(ch for ch in identificador if ch.isdigit())
     solo_digitos_telefono = "".join(ch for ch in (cliente.telefono or "") if ch.isdigit())
-    coincide_telefono = bool(solo_digitos_input) and solo_digitos_input in solo_digitos_telefono
+    coincide_telefono = (
+        len(solo_digitos_input) >= 9
+        and len(solo_digitos_telefono) >= 9
+        and solo_digitos_input[-9:] == solo_digitos_telefono[-9:]
+    )
 
     if not (coincide_nif or coincide_telefono):
         return jsonify({"error": MENSAJE_NO_ENCONTRADO}), 404
@@ -118,14 +146,19 @@ def solicitar_servicio(token):
         return jsonify({"error": "No se encontró ninguna reparación con ese enlace"}), 404
 
     data = request.get_json() or {}
-    solicitud = SolicitudServicio(cliente_id=reparacion.cliente_id, mensaje=data.get("mensaje"), origen="existente", negocio="firztnet")
+    mensaje = (data.get("mensaje") or "").strip()
+    if len(mensaje) > MAX_MENSAJE:
+        return jsonify({"error": f"El mensaje es demasiado largo (máximo {MAX_MENSAJE} caracteres)"}), 400
+    solicitud = SolicitudServicio(cliente_id=reparacion.cliente_id, mensaje=mensaje or None, origen="existente", negocio="firztnet")
     db.session.add(solicitud)
     db.session.commit()
+    _avisar_solicitud(f"Un cliente pide un nuevo servicio (orden {reparacion.numero_orden})", reparacion.cliente.nombre, reparacion.cliente.telefono, mensaje)
     return jsonify(solicitud.to_dict()), 201
 
 
 @seguimiento_bp.post("/solicitar-presupuesto")
 @limiter.limit("10 per minute")  # formulario público sin token — mismo límite que /buscar, para evitar abuso
+@limiter.limit("20 per day")  # y un máximo diario por persona: nadie de verdad pide 20 presupuestos en un día
 def solicitar_presupuesto_publico():
     """Formulario público para gente que TODAVÍA NO es cliente — sin
     necesitar ningún nº de orden ni historial previo. Si el teléfono ya
@@ -137,10 +170,27 @@ def solicitar_presupuesto_publico():
     from app.models import Cliente
 
     data = request.get_json() or {}
+
+    # Trampa para robots: si viene relleno el campo oculto, se responde "ok" pero no se guarda nada
+    # (así el robot cree que ha funcionado y no insiste).
+    if (data.get(CAMPO_TRAMPA) or "").strip():
+        return jsonify({"ok": True}), 201
+
     nombre = (data.get("nombre") or "").strip()
     telefono = (data.get("telefono") or "").strip()
+    email = (data.get("email") or "").strip() or None
+    mensaje = (data.get("mensaje") or "").strip()
     if not nombre or not telefono:
         return jsonify({"error": "El nombre y el teléfono son obligatorios"}), 400
+    if len(nombre) > MAX_NOMBRE:
+        return jsonify({"error": "El nombre es demasiado largo"}), 400
+    digitos = "".join(ch for ch in telefono if ch.isdigit())
+    if not (9 <= len(digitos) <= 15) or any(ch not in "0123456789+ -()." for ch in telefono):
+        return jsonify({"error": "Escribe un teléfono válido (al menos 9 cifras)"}), 400
+    if email and (len(email) > MAX_EMAIL or "@" not in email or " " in email):
+        return jsonify({"error": "El email no es válido"}), 400
+    if len(mensaje) > MAX_MENSAJE:
+        return jsonify({"error": f"El mensaje es demasiado largo (máximo {MAX_MENSAJE} caracteres)"}), 400
 
     negocio = (data.get("negocio") or "firztnet").strip().lower()
     if negocio not in {"firztnet", "firztweb"}:
@@ -148,15 +198,16 @@ def solicitar_presupuesto_publico():
 
     cliente = Cliente.query.filter_by(telefono=telefono).first()
     if not cliente:
-        cliente = Cliente(nombre=nombre, telefono=telefono, email=data.get("email"), es_contacto=True, negocios=negocio)
+        cliente = Cliente(nombre=nombre, telefono=telefono, email=email, es_contacto=True, negocios=negocio)
         db.session.add(cliente)
         db.session.flush()  # para tener ya su id antes de crear la solicitud
     elif cliente.es_contacto:
         cliente.anadir_negocio(negocio)  # sigue siendo un contacto: anotamos también por dónde más ha escrito
 
-    solicitud = SolicitudServicio(cliente_id=cliente.id, mensaje=data.get("mensaje"), origen="nuevo_contacto", negocio=negocio)
+    solicitud = SolicitudServicio(cliente_id=cliente.id, mensaje=mensaje or None, origen="nuevo_contacto", negocio=negocio)
     db.session.add(solicitud)
     db.session.commit()
+    _avisar_solicitud("Nueva solicitud de presupuesto desde la web", nombre, telefono, mensaje, negocio)
     return jsonify(solicitud.to_dict()), 201
 
 
@@ -188,7 +239,7 @@ def firmar_presupuesto(token):
             tipo="presupuesto",
             nombre_firmante=data.get("nombre_firmante") or (reparacion.cliente.nombre if reparacion.cliente else None),
             nombre_archivo=nombre_archivo,
-            ip_aceptacion=request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip(),
+            ip_aceptacion=request.remote_addr or "",  # IP real del cliente (ver ProxyFix en app/__init__.py)
         )
         db.session.add(firma)
 

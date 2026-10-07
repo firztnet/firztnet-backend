@@ -9,17 +9,22 @@ reparaciones_bp = Blueprint("reparaciones", __name__)
 
 
 def generar_numero_orden():
-    """Nº correlativo por año, ej: 2026-0001, 2026-0002..."""
-    anio = datetime.utcnow().year
-    ultima = (
-        Reparacion.query.filter(Reparacion.numero_orden.like(f"{anio}-%"))
-        .order_by(Reparacion.id.desc())
-        .first()
-    )
-    siguiente = 1
-    if ultima:
-        siguiente = int(ultima.numero_orden.split("-")[1]) + 1
-    return f"{anio}-{siguiente:04d}"
+    """Nº correlativo por año, ej: 2026-0001, 2026-0002... (año de Madrid: la
+    primera orden del 1 de enero a las 00:30 ya es del año nuevo)."""
+    from app.horario import hoy_madrid
+    from app.models import OrdenEliminada
+    anio = hoy_madrid().year
+    # Se mira el número más alto usado este año, contando también las órdenes
+    # eliminadas, para no repetir nunca un número que ya existió.
+    usados = [n for (n,) in db.session.query(Reparacion.numero_orden).filter(Reparacion.numero_orden.like(f"{anio}-%")).all()]
+    usados += [n for (n,) in db.session.query(OrdenEliminada.numero_orden).filter(OrdenEliminada.numero_orden.like(f"{anio}-%")).all()]
+    maximo = 0
+    for numero in usados:
+        try:
+            maximo = max(maximo, int(numero.split("-")[1]))
+        except (IndexError, ValueError):
+            pass
+    return f"{anio}-{maximo + 1:04d}"
 
 
 @reparaciones_bp.get("")
@@ -282,7 +287,7 @@ def buscar_por_serie(numero_serie):
         "numero_orden": reparacion.numero_orden,
         "cliente": reparacion.cliente.to_dict() if reparacion.cliente else None,
         "equipo": reparacion.equipo,
-        "fecha_entrega": reparacion.fecha_entrega.isoformat() if reparacion.fecha_entrega else None,
+        "fecha_entrega": (reparacion.fecha_entrega.isoformat() + "Z") if reparacion.fecha_entrega else None,
     } if reparacion else None
     return jsonify(resultado)
 
@@ -293,7 +298,7 @@ def cobrar_y_facturar(rep_id):
     total acumulado de la reparación (incluyendo este cobro)."""
     from decimal import Decimal
     from app.models import MovimientoFinanciero, Factura, ConfiguracionNegocio
-    from app.routes.facturas import generar_numero_factura
+    from app.routes.facturas import generar_numero_factura, datos_emisor_incompletos, congelar_emisor
 
     reparacion = Reparacion.query.get_or_404(rep_id)
     if not reparacion.cliente:
@@ -303,14 +308,23 @@ def cobrar_y_facturar(rep_id):
         return jsonify({"error": "Esta reparación ya tiene una factura emitida. Genera una nueva reparación o usa el cobro normal sin refacturar."}), 400
 
     data = request.get_json() or {}
-    if not data.get("monto"):
+    if data.get("monto") in (None, ""):
         return jsonify({"error": "El monto es obligatorio"}), 400
+    from app.routes.finanzas import leer_importe
+    importe, error_importe = leer_importe(data["monto"])
+    if error_importe:
+        return jsonify({"error": error_importe}), 400
+
+    # Se comprueba ANTES de registrar el cobro, para no dejar un cobro sin su factura.
+    error_emisor = datos_emisor_incompletos(ConfiguracionNegocio.obtener())
+    if error_emisor:
+        return jsonify({"error": error_emisor + " (No se ha registrado el cobro: usa \"Registrar cobro\" si solo quieres cobrar.)"}), 400
 
     movimiento = MovimientoFinanciero(
         reparacion_id=rep_id,
         tipo="ingreso",
-        concepto=data.get("concepto") or "Reparación",
-        monto=data["monto"],
+        concepto=(data.get("concepto") or "Reparación")[:120],
+        monto=importe,
         metodo_pago=data.get("metodo_pago"),
     )
     db.session.add(movimiento)
@@ -333,8 +347,93 @@ def cobrar_y_facturar(rep_id):
         iva_pct=iva_pct,
         iva_importe=iva_importe,
         total=total_cobrado,
+        # Antes este botón no copiaba los datos del cliente: si luego lo borrabas por
+        # RGPD, la factura se quedaba sin su nombre ni su NIF.
+        cliente_nombre_congelado=reparacion.cliente.nombre,
+        cliente_nif_congelado=reparacion.cliente.nif,
     )
+    congelar_emisor(factura, negocio)
     db.session.add(factura)
     db.session.commit()
 
     return jsonify({"movimiento": movimiento.to_dict(), "factura": factura.to_dict()}), 201
+
+
+@reparaciones_bp.delete("/<int:rep_id>")
+def eliminar_reparacion(rep_id):
+    """Borra una reparación por completo (botón "Eliminar" del menú ⋮ de las tablas).
+
+    Solo se permite si NO tiene factura ni movimientos de caja (cobros o gastos):
+    una factura emitida no se puede borrar nunca (obligación fiscal) y los cobros
+    son parte de la contabilidad. En esos casos se devuelve un 409 con el motivo.
+
+    Si se puede borrar, se borra con todo lo suyo: fotos y firmas (archivo y fila),
+    comprobantes, checklist, tiempos de trabajo y recordatorios. Los repuestos que
+    tenía asignados vuelven al stock. Las garantías con proveedores (RMA) que la
+    mencionaban se conservan, solo se desvinculan de la orden."""
+    import os
+    from app.models import Factura, FotoReparacion, Comprobante, SesionTrabajo, Recordatorio, RMA, OrdenEliminada
+    from app.firmas import ruta_completa as ruta_firma
+    from app.routes.fotos import FOTOS_DIR
+
+    reparacion = Reparacion.query.get_or_404(rep_id)
+    numero = reparacion.numero_orden
+
+    if Factura.query.filter_by(reparacion_id=rep_id).first():
+        return jsonify({
+            "error": "tiene_factura",
+            "mensaje": f"La orden {numero} ya tiene una factura emitida y una factura no se puede borrar nunca (obligación fiscal). Si fue un error, emite una factura rectificativa.",
+        }), 409
+
+    if MovimientoFinanciero.query.filter_by(reparacion_id=rep_id).first():
+        return jsonify({
+            "error": "tiene_cobros",
+            "mensaje": f"La orden {numero} tiene cobros o gastos registrados en Caja, así que no se puede borrar sin descuadrar la contabilidad. Si no se va a hacer, márcala como \"No reparable\".",
+        }), 409
+
+    # Archivos en disco: se recogen ahora y se borran DESPUÉS de confirmar el
+    # borrado en la base de datos, para no quedarnos sin fotos si algo falla a medias.
+    archivos_a_borrar = []
+
+    for foto in FotoReparacion.query.filter_by(reparacion_id=rep_id).all():
+        archivos_a_borrar.append(os.path.join(FOTOS_DIR, foto.nombre_archivo))
+        db.session.delete(foto)
+
+    for firma in Firma.query.filter_by(reparacion_id=rep_id).all():
+        archivos_a_borrar.append(ruta_firma(firma.nombre_archivo))
+        db.session.delete(firma)
+
+    repuestos_devueltos = 0
+    for uso in ReparacionRepuesto.query.filter_by(reparacion_id=rep_id).all():
+        repuesto = Repuesto.query.get(uso.repuesto_id)
+        if repuesto:
+            repuesto.stock_actual += uso.cantidad
+            repuestos_devueltos += uso.cantidad
+        db.session.delete(uso)
+
+    Comprobante.query.filter_by(reparacion_id=rep_id).delete()
+    ChecklistItem.query.filter_by(reparacion_id=rep_id).delete()
+    SesionTrabajo.query.filter_by(reparacion_id=rep_id).delete()
+    Recordatorio.query.filter_by(reparacion_id=rep_id).delete()
+    RMA.query.filter_by(reparacion_id=rep_id).update({"reparacion_id": None})
+    # Primero se borra todo lo que cuelga de la orden y DESPUÉS la orden: si la base
+    # de datos es PostgreSQL (que vigila estas relaciones), al revés daría error.
+    db.session.flush()
+
+    # Queda apuntado qué se borró (y así su número de orden no se reutiliza).
+    db.session.add(OrdenEliminada(
+        numero_orden=numero,
+        cliente_nombre=reparacion.cliente.nombre if reparacion.cliente else None,
+        equipo=reparacion.equipo,
+    ))
+    db.session.delete(reparacion)
+    db.session.commit()
+
+    for ruta in archivos_a_borrar:
+        try:
+            if os.path.exists(ruta):
+                os.remove(ruta)
+        except OSError:
+            pass  # si un archivo no se puede borrar, la orden ya está eliminada igualmente
+
+    return jsonify({"eliminado": True, "numero_orden": numero, "repuestos_devueltos": repuestos_devueltos})

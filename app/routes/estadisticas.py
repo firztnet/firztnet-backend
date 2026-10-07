@@ -65,10 +65,12 @@ def resumen_visitas():
     desde qué dispositivo, qué botones tocan más, y en qué horas/días
     hay más tráfico (últimos 30 días para estos dos últimos, para que
     reflejen el patrón actual y no se diluyan con el histórico completo)."""
-    hoy = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    from app.horario import hoy_madrid, limites_dia_utc, inicio_mes_utc
+    dia_hoy = hoy_madrid()
+    hoy, _ = limites_dia_utc(dia_hoy)  # hoy a las 00:00 de Madrid (en UTC)
     hace_7_dias = hoy - timedelta(days=7)
     hace_30_dias = hoy - timedelta(days=30)
-    inicio_mes = hoy.replace(day=1)
+    inicio_mes = inicio_mes_utc(dia_hoy.year, dia_hoy.month)
 
     resultado = {}
     for sitio in SITIOS_VALIDOS:
@@ -103,24 +105,17 @@ def resumen_visitas():
             .all()
         )
 
-        por_hora = (
-            db.session.query(
-                db.func.strftime("%H", VisitaWeb.fecha).label("hora"),
-                db.func.count(VisitaWeb.id).label("total"),
-            )
-            .filter(VisitaWeb.sitio == sitio, VisitaWeb.fecha >= hace_30_dias)
-            .group_by("hora")
-            .all()
-        )
-        por_dia_semana = (
-            db.session.query(
-                db.func.strftime("%w", VisitaWeb.fecha).label("dia"),
-                db.func.count(VisitaWeb.id).label("total"),
-            )
-            .filter(VisitaWeb.sitio == sitio, VisitaWeb.fecha >= hace_30_dias)
-            .group_by("dia")
-            .all()
-        )
+        # Horas y días de la semana en hora de MADRID (antes salían en hora
+        # universal: una visita a las 10:00 de Madrid contaba como de las 8:00).
+        from collections import Counter
+        from app.horario import a_madrid
+        fechas_30 = [
+            a_madrid(f) for (f,) in db.session.query(VisitaWeb.fecha)
+            .filter(VisitaWeb.sitio == sitio, VisitaWeb.fecha >= hace_30_dias).all() if f
+        ]
+        por_hora = sorted(Counter(f.strftime("%H") for f in fechas_30).items())
+        # %w: domingo = 0, igual que lo que devolvía antes la base de datos
+        por_dia_semana = sorted(Counter(f.strftime("%w") for f in fechas_30).items())
 
         top_paginas = (
             db.session.query(VisitaWeb.ruta, db.func.count(VisitaWeb.id).label("total"))

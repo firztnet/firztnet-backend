@@ -6,6 +6,7 @@ from sqlalchemy import func
 from flask import Blueprint, jsonify, request, Response
 from app import db
 from app.models import MovimientoFinanciero, Reparacion, Cliente, Factura
+from app.horario import hoy_madrid, ahora_madrid, limites_dia_utc, inicio_mes_utc, a_utc, a_madrid
 
 reportes_bp = Blueprint("reportes", __name__)
 
@@ -22,9 +23,8 @@ def _balance(query):
 
 @reportes_bp.get("/diario")
 def reporte_diario():
-    hoy = datetime.utcnow().date()
-    inicio = datetime.combine(hoy, datetime.min.time())
-    fin = inicio + timedelta(days=1)
+    hoy = hoy_madrid()
+    inicio, fin = limites_dia_utc(hoy)
 
     query = MovimientoFinanciero.query.filter(
         MovimientoFinanciero.fecha >= inicio, MovimientoFinanciero.fecha < fin
@@ -56,8 +56,9 @@ def reporte_diario():
 
 @reportes_bp.get("/mensual")
 def reporte_mensual():
-    hoy = datetime.utcnow()
-    inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    hoy = ahora_madrid()
+    inicio_mes_madrid = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    inicio_mes = a_utc(inicio_mes_madrid)
 
     query = MovimientoFinanciero.query.filter(MovimientoFinanciero.fecha >= inicio_mes)
     ingresos, gastos = _balance(query)
@@ -73,7 +74,7 @@ def reporte_mensual():
 
     return jsonify(
         {
-            "mes": inicio_mes.strftime("%Y-%m"),
+            "mes": inicio_mes_madrid.strftime("%Y-%m"),
             "ingresos": ingresos,
             "gastos": gastos,
             "balance_neto": ingresos - gastos,
@@ -113,12 +114,11 @@ def contador_reparaciones():
 def tendencia_semanal():
     """Ingresos, gastos y nº de reparaciones recibidas de cada uno de
     los últimos 7 días (incluyendo hoy) — para la gráfica del panel."""
-    hoy = datetime.utcnow().date()
+    hoy = hoy_madrid()
     dias = []
     for i in range(6, -1, -1):
         dia = hoy - timedelta(days=i)
-        inicio = datetime.combine(dia, datetime.min.time())
-        fin = inicio + timedelta(days=1)
+        inicio, fin = limites_dia_utc(dia)
 
         query = MovimientoFinanciero.query.filter(
             MovimientoFinanciero.fecha >= inicio, MovimientoFinanciero.fecha < fin
@@ -148,12 +148,13 @@ def exportar_mes():
     if mes_str:
         anio, mes = map(int, mes_str.split("-"))
     else:
-        hoy = datetime.utcnow()
+        hoy = ahora_madrid()
         anio, mes = hoy.year, hoy.month
 
-    inicio = datetime(anio, mes, 1)
+    # Del día 1 a las 00:00 al último día a las 23:59:59, en hora de Madrid.
+    inicio = inicio_mes_utc(anio, mes)
     ultimo_dia = calendar.monthrange(anio, mes)[1]
-    fin = datetime(anio, mes, ultimo_dia, 23, 59, 59)
+    fin = a_utc(datetime(anio, mes, ultimo_dia, 23, 59, 59))
 
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")  # ; para que Excel en español lo abra bien
@@ -171,7 +172,7 @@ def exportar_mes():
     total_ingresos = total_gastos = 0
     for m in movimientos:
         writer.writerow([
-            m.fecha.strftime("%d/%m/%Y %H:%M"),
+            a_madrid(m.fecha).strftime("%d/%m/%Y %H:%M"),
             "Ingreso" if m.tipo == "ingreso" else "Gasto",
             m.concepto or "",
             m.metodo_pago or "",
@@ -195,9 +196,10 @@ def exportar_mes():
     for f in facturas:
         writer.writerow([
             f.numero,
-            f.fecha_emision.strftime("%d/%m/%Y"),
-            f.cliente.nombre if f.cliente else "",
-            f.cliente.nif if f.cliente else "",
+            a_madrid(f.fecha_emision).strftime("%d/%m/%Y"),
+            # Los datos copiados en la factura (si el cliente se borró por RGPD, salen igualmente bien)
+            f.cliente_nombre_congelado or (f.cliente.nombre if f.cliente else ""),
+            f.cliente_nif_congelado or (f.cliente.nif if f.cliente else ""),
             f"{float(f.base_imponible):.2f}".replace(".", ","),
             f"{float(f.iva_pct):.0f}",
             f"{float(f.iva_importe):.2f}".replace(".", ","),
@@ -288,7 +290,7 @@ def equipos_abandonados():
             "numero_orden": rep.numero_orden,
             "equipo": rep.equipo,
             "cliente": rep.cliente.to_dict() if rep.cliente else None,
-            "fecha_listo": rep.fecha_listo.isoformat(),
+            "fecha_listo": rep.fecha_listo.isoformat() + "Z",
             "dias_abandonado": dias,
             "coste_acumulado": coste_acumulado,
             "mensaje_sugerido": texto,
@@ -348,7 +350,7 @@ def garantias_activas():
             "numero_orden": rep.numero_orden,
             "equipo": rep.equipo,
             "cliente": rep.cliente.to_dict() if rep.cliente else None,
-            "fecha_fin_garantia": rep.fecha_fin_garantia.isoformat(),
+            "fecha_fin_garantia": rep.fecha_fin_garantia.isoformat() + "Z",
             "dias_restantes": dias_restantes,
         })
 

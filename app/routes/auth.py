@@ -6,7 +6,10 @@ auth_bp = Blueprint("auth", __name__)
 
 
 def _ip_real():
-    return request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    """IP real de quien hace la petición. ProxyFix (en app/__init__.py) ya la
+    saca de la cabecera que pone Railway; la que escribe el propio visitante
+    no se usa, porque se puede falsear."""
+    return request.remote_addr or ""
 
 
 @auth_bp.post("/login")

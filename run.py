@@ -70,5 +70,9 @@ with app.app_context():
             db.session.add(PlantillaMensaje(nombre=nombre, texto=texto, estado_disparador=estado_disparador))
         db.session.commit()
 
+    # Avisa por Telegram si la base de datos, fotos o firmas no están en el disco permanente.
+    from app import comprobar_almacenamiento
+    comprobar_almacenamiento(app)
+
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

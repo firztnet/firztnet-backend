@@ -45,6 +45,11 @@ COLUMNAS_NUEVAS = {
         ("motivo_rectificacion", "TEXT"),
         ("cliente_nombre_congelado", "VARCHAR(120)"),
         ("cliente_nif_congelado", "VARCHAR(20)"),
+        ("emisor_nombre", "VARCHAR(120)"),
+        ("emisor_nif", "VARCHAR(20)"),
+        ("emisor_direccion", "VARCHAR(200)"),
+        ("emisor_telefono", "VARCHAR(30)"),
+        ("emisor_email", "VARCHAR(120)"),
     ],
     "configuracion_negocio": [
         ("nif", "VARCHAR(20)"),
@@ -57,6 +62,11 @@ COLUMNAS_NUEVAS = {
         ("telegram_chat_id", "VARCHAR(40)"),
         ("telefono_bizum", "VARCHAR(20)"),
         ("visitas_vistas_hasta", "DATETIME"),
+    ],
+    "movimientos_financieros": [
+        ("anulado", "BOOLEAN DEFAULT 0"),
+        ("motivo_anulacion", "VARCHAR(200)"),
+        ("anula_a_id", "INTEGER"),
     ],
     "reparaciones": [
         ("token_seguimiento", "VARCHAR(40)"),
@@ -99,6 +109,12 @@ def aplicar_migraciones(db):
     if ("clientes", "negocios") in creadas:
         _rellenar_negocios_clientes(db)
 
+    # Solo el día que se crean estas columnas: las facturas ya emitidas se quedan con tus
+    # datos de negocio de ese momento (los que se venían usando para dibujarlas), y las que
+    # no tenían copiados los datos del cliente los copian ahora (salvo clientes ya borrados por RGPD).
+    if ("facturas", "emisor_nif") in creadas:
+        _congelar_facturas_antiguas(db)
+
     # Al activarse el aviso de visitas, lo anterior cuenta como ya visto (si no, la primera vez
     # la campana te avisaría de todas las visitas de la historia).
     if ("configuracion_negocio", "visitas_vistas_hasta") in creadas:
@@ -107,6 +123,29 @@ def aplicar_migraciones(db):
             db.session.commit()
         except Exception:
             db.session.rollback()
+
+
+def _congelar_facturas_antiguas(db):
+    try:
+        db.session.execute(text(
+            "UPDATE facturas SET "
+            "emisor_nombre = (SELECT nombre_negocio FROM configuracion_negocio WHERE id = 1), "
+            "emisor_nif = (SELECT nif FROM configuracion_negocio WHERE id = 1), "
+            "emisor_direccion = (SELECT direccion FROM configuracion_negocio WHERE id = 1), "
+            "emisor_telefono = (SELECT telefono FROM configuracion_negocio WHERE id = 1), "
+            "emisor_email = (SELECT email FROM configuracion_negocio WHERE id = 1) "
+            "WHERE emisor_nif IS NULL"
+        ))
+        db.session.execute(text(
+            "UPDATE facturas SET "
+            "cliente_nombre_congelado = (SELECT c.nombre FROM clientes c WHERE c.id = facturas.cliente_id), "
+            "cliente_nif_congelado = (SELECT c.nif FROM clientes c WHERE c.id = facturas.cliente_id) "
+            "WHERE cliente_nombre_congelado IS NULL "
+            "AND (SELECT c.nombre FROM clientes c WHERE c.id = facturas.cliente_id) NOT LIKE 'Cliente eliminado (RGPD%'"
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def _rellenar_negocios_clientes(db):
