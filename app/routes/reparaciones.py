@@ -110,6 +110,28 @@ def editar_reparacion(rep_id):
     estimada de entrega (si al principio no la sabías)."""
     reparacion = Reparacion.query.get_or_404(rep_id)
     data = request.get_json() or {}
+
+    # Campos de texto que también se pueden corregir desde "Editar" (con su tamaño máximo).
+    # El equipo no puede quedar vacío.
+    if "equipo" in data:
+        equipo = (data["equipo"] or "").strip()
+        if not equipo:
+            return jsonify({"error": "El equipo (o la descripción del servicio) no puede quedar vacío"}), 400
+        if len(equipo) > 120:
+            return jsonify({"error": "El equipo es demasiado largo (máximo 120 caracteres)"}), 400
+        reparacion.equipo = equipo
+    for campo, maximo in (("accesorios_entregados", 255), ("problema_reportado", 5000), ("estado_entrada", 5000)):
+        if campo in data:
+            valor = (data[campo] or "").strip()
+            if len(valor) > maximo:
+                return jsonify({"error": f"El texto de '{campo.replace('_', ' ')}' es demasiado largo (máximo {maximo} caracteres)"}), 400
+            setattr(reparacion, campo, valor or None)
+
+    for campo, maximo in (("marca", 60), ("modelo", 60), ("tecnico", 60), ("categoria", 40),
+                          ("direccion_servicio", 200), ("wifi_ssid", 80), ("wifi_password", 120)):
+        if campo in data and data[campo] and len(str(data[campo])) > maximo:
+            return jsonify({"error": f"El campo '{campo.replace('_', ' ')}' es demasiado largo (máximo {maximo} caracteres)"}), 400
+
     if "fecha_estimada" in data:
         reparacion.fecha_estimada = datetime.fromisoformat(data["fecha_estimada"]) if data["fecha_estimada"] else None
     if "urgente" in data:
