@@ -133,7 +133,13 @@ def _resumen_alertas(cliente):
 def obtener_cliente(cliente_id):
     cliente = Cliente.query.get_or_404(cliente_id)
     data = cliente.to_dict()
-    data["reparaciones"] = [r.to_dict() for r in cliente.reparaciones]
+    # El historial de reparaciones no incluye los meses de mantenimiento (tienen su sección).
+    data["reparaciones"] = [r.to_dict() for r in cliente.reparaciones if not r.contrato_id]
+    from app.models import ContratoMantenimiento
+    data["contratos_mantenimiento"] = [
+        {"id": c.id, "servicio": c.servicio, "cuota": float(c.cuota or 0), "estado": c.estado}
+        for c in ContratoMantenimiento.query.filter_by(cliente_id=cliente.id).all()
+    ]
     data["resumen"] = _resumen_alertas(cliente)
     return jsonify(data)
 
@@ -203,6 +209,27 @@ def olvidar_cliente(cliente_id):
         rep.direccion_servicio = None
         rep.wifi_ssid = None
         rep.wifi_password = None
+
+    # Mantenimientos: se borran la dirección, el WiFi y las notas del contrato (que queda de
+    # baja) y, de sus visitas, las firmas y las notas. Las cuotas cobradas se conservan.
+    from app.models import ContratoMantenimiento, VisitaMantenimiento
+    for contrato in ContratoMantenimiento.query.filter_by(cliente_id=cliente.id).all():
+        contrato.direccion = None
+        contrato.wifi_ssid = None
+        contrato.wifi_password = None
+        contrato.notas = None
+        contrato.estado = "baja"
+    ids_meses = [r.id for r in cliente.reparaciones if r.contrato_id]
+    if ids_meses:
+        for visita in VisitaMantenimiento.query.filter(VisitaMantenimiento.reparacion_id.in_(ids_meses)).all():
+            if visita.firma_archivo:
+                ruta = ruta_firma(visita.firma_archivo)
+                if os.path.exists(ruta):
+                    os.remove(ruta)
+                firmas_borradas += 1
+            visita.firma_archivo = None
+            visita.nombre_firmante = None
+            visita.notas = None
 
     # Solicitudes y recordatorios: no hay obligación legal de conservarlos.
     SolicitudServicio.query.filter_by(cliente_id=cliente.id).delete()

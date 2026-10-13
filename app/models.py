@@ -147,6 +147,13 @@ class Reparacion(db.Model):
     presupuesto_estado = db.Column(db.String(20))
     presupuesto_fecha = db.Column(db.DateTime)
 
+    # Mantenimientos: si la orden es "un mes" de un contrato de mantenimiento, aquí va el
+    # contrato y el mes ("2026-11"). Esas órdenes no salen en el tablero de reparaciones:
+    # solo guardan los cobros de la cuota de ese mes, y las visitas cuelgan de ellas.
+    contrato_id = db.Column(db.Integer, db.ForeignKey("contratos_mantenimiento.id"), nullable=True, index=True)
+    periodo = db.Column(db.String(7), nullable=True)
+    cuota_mes = db.Column(db.Numeric(10, 2), nullable=True)  # cuota acordada para ese mes (si luego cambia la cuota, los meses ya cobrados no cambian)
+
     repuestos_usados = db.relationship("ReparacionRepuesto", backref="reparacion", lazy=True)
     movimientos = db.relationship("MovimientoFinanciero", backref="reparacion", lazy=True)
     comprobantes = db.relationship("Comprobante", backref="reparacion", lazy=True)
@@ -200,6 +207,8 @@ class Reparacion(db.Model):
             "presupuesto_descripcion": self.presupuesto_descripcion,
             "presupuesto_estado": self.presupuesto_estado,
             "presupuesto_fecha": _iso_utc(self.presupuesto_fecha),
+            "contrato_id": self.contrato_id,
+            "periodo": self.periodo,
         }
 
 
@@ -510,7 +519,12 @@ class ConfiguracionNegocio(db.Model):
         if not config:
             config = ConfiguracionNegocio(id=1)
             db.session.add(config)
-            db.session.commit()
+            try:
+                db.session.commit()
+            except Exception:
+                # Dos peticiones a la vez con la base recién creada: la otra ya la ha creado.
+                db.session.rollback()
+                config = ConfiguracionNegocio.query.get(1)
         return config
 
 
@@ -738,3 +752,83 @@ class OrdenEliminada(db.Model):
     cliente_nombre = db.Column(db.String(120))
     equipo = db.Column(db.String(200))
     fecha_eliminacion = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+ESTADOS_CONTRATO = ("activo", "pendiente", "baja")
+
+
+class ContratoMantenimiento(db.Model):
+    """Mantenimiento periódico con cuota fija mensual (precio final, IVA incluido).
+    Cada mes es una "orden" interna (Reparacion con contrato_id y periodo) que guarda
+    el cobro de la cuota; dentro de cada mes puede haber varias visitas."""
+    __tablename__ = "contratos_mantenimiento"
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
+    servicio = db.Column(db.String(100), nullable=False)
+    direccion = db.Column(db.String(200))
+    wifi_ssid = db.Column(db.String(80))
+    wifi_password = db.Column(db.String(120))
+    tareas = db.Column(db.Text)  # lo que incluye: una tarea por línea
+    cuota = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    estado = db.Column(db.String(20), nullable=False, default="activo")  # activo / pendiente / baja
+    fecha_inicio = db.Column(db.Date)
+    notas = db.Column(db.Text)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+    cliente = db.relationship("Cliente")
+
+    def lista_tareas(self):
+        return [t.strip() for t in (self.tareas or "").splitlines() if t.strip()]
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "cliente": self.cliente.to_dict() if self.cliente else None,
+            "servicio": self.servicio,
+            "direccion": self.direccion,
+            "wifi_ssid": self.wifi_ssid,
+            "wifi_password": self.wifi_password,
+            "tareas": self.lista_tareas(),
+            "cuota": float(self.cuota or 0),
+            "estado": self.estado,
+            "fecha_inicio": self.fecha_inicio.isoformat() if self.fecha_inicio else None,
+            "notas": self.notas,
+        }
+
+
+class VisitaMantenimiento(db.Model):
+    """Una visita dentro de un mes de mantenimiento (puede haber varias al mes).
+    No lleva cobro: va incluida en la cuota del mes."""
+    __tablename__ = "visitas_mantenimiento"
+    id = db.Column(db.Integer, primary_key=True)
+    reparacion_id = db.Column(db.Integer, db.ForeignKey("reparaciones.id"), nullable=False, index=True)  # el mes
+    fecha = db.Column(db.Date, nullable=False)  # día de la visita
+    inicio = db.Column(db.DateTime)
+    fin = db.Column(db.DateTime)
+    tareas_hechas = db.Column(db.Text)  # JSON: lista de las tareas marcadas
+    notas = db.Column(db.Text)
+    firma_archivo = db.Column(db.String(120))
+    nombre_firmante = db.Column(db.String(120))
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        import json
+        try:
+            hechas = json.loads(self.tareas_hechas or "[]")
+        except ValueError:
+            hechas = []
+        minutos = None
+        if self.inicio and self.fin:
+            minutos = max(0, int((self.fin - self.inicio).total_seconds() // 60))
+        return {
+            "id": self.id,
+            "reparacion_id": self.reparacion_id,
+            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "inicio": _iso_utc(self.inicio),
+            "fin": _iso_utc(self.fin),
+            "minutos": minutos,
+            "tareas_hechas": hechas,
+            "notas": self.notas,
+            "firmada": bool(self.firma_archivo),
+            "nombre_firmante": self.nombre_firmante,
+        }

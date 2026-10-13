@@ -34,6 +34,9 @@ def listar_reparaciones():
     q = request.args.get("q", "").strip()
 
     query = Reparacion.query
+    # Los meses de los contratos de mantenimiento tienen su propia sección: no salen aquí.
+    if request.args.get("incluir_mantenimiento") != "true":
+        query = query.filter(Reparacion.contrato_id.is_(None))
     if estado:
         query = query.filter_by(estado_actual=estado)
     if q:
@@ -433,6 +436,11 @@ def eliminar_reparacion(rep_id):
             repuestos_devueltos += uso.cantidad
         db.session.delete(uso)
 
+    from app.models import VisitaMantenimiento
+    for visita in VisitaMantenimiento.query.filter_by(reparacion_id=rep_id).all():
+        if visita.firma_archivo:
+            archivos_a_borrar.append(ruta_firma(visita.firma_archivo))
+        db.session.delete(visita)
     Comprobante.query.filter_by(reparacion_id=rep_id).delete()
     ChecklistItem.query.filter_by(reparacion_id=rep_id).delete()
     SesionTrabajo.query.filter_by(reparacion_id=rep_id).delete()

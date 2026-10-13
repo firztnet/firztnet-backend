@@ -69,6 +69,8 @@ COLUMNAS_NUEVAS = {
         ("anula_a_id", "INTEGER"),
     ],
     "reparaciones": [
+        ("contrato_id", "INTEGER"),
+        ("periodo", "VARCHAR(7)"), ("cuota_mes", "NUMERIC(10,2)"),
         ("token_seguimiento", "VARCHAR(40)"),
         ("presupuesto_importe", "NUMERIC(10, 2)"),
         ("presupuesto_descripcion", "TEXT"),

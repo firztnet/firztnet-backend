@@ -31,10 +31,10 @@ def reporte_diario():
     )
     ingresos, gastos = _balance(query)
 
-    recibidos_hoy = Reparacion.query.filter(
+    recibidos_hoy = Reparacion.query.filter(Reparacion.contrato_id.is_(None),
         Reparacion.fecha_recepcion >= inicio, Reparacion.fecha_recepcion < fin
     ).count()
-    entregados_hoy = Reparacion.query.filter(
+    entregados_hoy = Reparacion.query.filter(Reparacion.contrato_id.is_(None),
         Reparacion.fecha_entrega >= inicio, Reparacion.fecha_entrega < fin
     ).count()
     nuevos_clientes_hoy = Cliente.query.filter(
@@ -63,10 +63,10 @@ def reporte_mensual():
     query = MovimientoFinanciero.query.filter(MovimientoFinanciero.fecha >= inicio_mes)
     ingresos, gastos = _balance(query)
 
-    entregadas = Reparacion.query.filter(
+    entregadas = Reparacion.query.filter(Reparacion.contrato_id.is_(None),
         Reparacion.fecha_entrega >= inicio_mes, Reparacion.estado_actual.in_(["entregado", "completado"])
     ).count()
-    no_reparables = Reparacion.query.filter(
+    no_reparables = Reparacion.query.filter(Reparacion.contrato_id.is_(None),
         Reparacion.fecha_recepcion >= inicio_mes, Reparacion.estado_actual == "no_reparable"
     ).count()
 
@@ -91,14 +91,16 @@ def contador_reparaciones():
     estado. 'Entregadas' incluye tanto 'entregado' (taller) como
     'completado' (domicilio) — ambos significan que el trabajo ya
     terminó de verdad, solo que con nombres distintos según el tipo."""
-    total = Reparacion.query.count()
-    en_curso = Reparacion.query.filter(
+    # Los meses de los contratos de mantenimiento no cuentan como reparaciones.
+    base = Reparacion.query.filter(Reparacion.contrato_id.is_(None))
+    total = base.count()
+    en_curso = base.filter(
         ~Reparacion.estado_actual.in_(["entregado", "no_reparable", "completado"])
     ).count()
-    entregadas = Reparacion.query.filter(
+    entregadas = base.filter(
         Reparacion.estado_actual.in_(["entregado", "completado"])
     ).count()
-    no_reparables = Reparacion.query.filter_by(estado_actual="no_reparable").count()
+    no_reparables = base.filter(Reparacion.estado_actual == "no_reparable").count()
 
     return jsonify(
         {
@@ -125,7 +127,7 @@ def tendencia_semanal():
         )
         ingresos, gastos = _balance(query)
 
-        recibidas = Reparacion.query.filter(
+        recibidas = Reparacion.query.filter(Reparacion.contrato_id.is_(None),
             Reparacion.fecha_recepcion >= inicio, Reparacion.fecha_recepcion < fin
         ).count()
 
