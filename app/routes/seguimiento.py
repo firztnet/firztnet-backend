@@ -28,14 +28,19 @@ MAX_EMAIL = 120
 MAX_MENSAJE = 2000
 CAMPO_TRAMPA = "sitio_web"  # campo oculto en las webs: una persona nunca lo rellena, un robot sí
 
+# Webs que pueden mandar solicitudes por el formulario público, con el nombre que se ve en los avisos.
+NEGOCIOS_FORMULARIO = {"firztnet": "Firztnet", "firztweb": "Firztweb", "afiliados": "TechCompara"}
 
-def _avisar_solicitud(titulo, nombre, telefono, mensaje, negocio=None):
+
+def _avisar_solicitud(titulo, nombre, telefono, mensaje, negocio=None, email=None):
     """Te manda un Telegram cuando alguien escribe desde la web o desde su página de seguimiento."""
     from app.notificaciones import enviar_telegram
     texto = f"📩 {titulo}"
     if negocio:
-        texto += f" ({'Firztweb' if negocio == 'firztweb' else 'Firztnet'})"
+        texto += f" ({NEGOCIOS_FORMULARIO.get(negocio, 'Firztnet')})"
     texto += f"\n👤 {nombre or '—'}\n📞 {telefono or '—'}"
+    if email:
+        texto += f"\n✉️ {email}"
     if mensaje:
         texto += f"\n💬 {mensaje[:300]}{'…' if len(mensaje) > 300 else ''}"
     try:
@@ -180,25 +185,36 @@ def solicitar_presupuesto_publico():
     telefono = (data.get("telefono") or "").strip()
     email = (data.get("email") or "").strip() or None
     mensaje = (data.get("mensaje") or "").strip()
-    if not nombre or not telefono:
-        return jsonify({"error": "El nombre y el teléfono son obligatorios"}), 400
+    # Un "teléfono" sin ninguna cifra (p. ej. el "Sin teléfono (contactar por email)" que manda
+    # la web de Firztnet cuando se deja vacío) cuenta como que no hay teléfono.
+    if not any(ch.isdigit() for ch in telefono):
+        telefono = ""
+    if not nombre:
+        return jsonify({"error": "El nombre es obligatorio"}), 400
+    if not telefono and not email:
+        return jsonify({"error": "Indica un teléfono o un email para poder responderte"}), 400
     if len(nombre) > MAX_NOMBRE:
         return jsonify({"error": "El nombre es demasiado largo"}), 400
-    digitos = "".join(ch for ch in telefono if ch.isdigit())
-    if not (9 <= len(digitos) <= 15) or any(ch not in "0123456789+ -()." for ch in telefono):
-        return jsonify({"error": "Escribe un teléfono válido (al menos 9 cifras)"}), 400
+    if telefono:
+        digitos = "".join(ch for ch in telefono if ch.isdigit())
+        if not (9 <= len(digitos) <= 15) or any(ch not in "0123456789+ -()." for ch in telefono):
+            return jsonify({"error": "Escribe un teléfono válido (al menos 9 cifras)"}), 400
     if email and (len(email) > MAX_EMAIL or "@" not in email or " " in email):
         return jsonify({"error": "El email no es válido"}), 400
     if len(mensaje) > MAX_MENSAJE:
         return jsonify({"error": f"El mensaje es demasiado largo (máximo {MAX_MENSAJE} caracteres)"}), 400
 
     negocio = (data.get("negocio") or "firztnet").strip().lower()
-    if negocio not in {"firztnet", "firztweb"}:
+    if negocio not in NEGOCIOS_FORMULARIO:
         negocio = "firztnet"  # valor seguro por defecto — así una web vieja en caché que no mande este campo no se pierde
 
-    cliente = Cliente.query.filter_by(telefono=telefono).first()
+    # Se reutiliza la ficha si ya existe: por teléfono si lo hay; si no, por email.
+    if telefono:
+        cliente = Cliente.query.filter_by(telefono=telefono).first()
+    else:
+        cliente = Cliente.query.filter(db.func.lower(Cliente.email) == email.lower()).first()
     if not cliente:
-        cliente = Cliente(nombre=nombre, telefono=telefono, email=email, es_contacto=True, negocios=negocio)
+        cliente = Cliente(nombre=nombre, telefono=telefono or None, email=email, es_contacto=True, negocios=negocio)
         db.session.add(cliente)
         db.session.flush()  # para tener ya su id antes de crear la solicitud
     elif cliente.es_contacto:
@@ -207,7 +223,8 @@ def solicitar_presupuesto_publico():
     solicitud = SolicitudServicio(cliente_id=cliente.id, mensaje=mensaje or None, origen="nuevo_contacto", negocio=negocio)
     db.session.add(solicitud)
     db.session.commit()
-    _avisar_solicitud("Nueva solicitud de presupuesto desde la web", nombre, telefono, mensaje, negocio)
+    titulo = "Nuevo mensaje desde la web" if negocio == "afiliados" else "Nueva solicitud de presupuesto desde la web"
+    _avisar_solicitud(titulo, nombre, telefono, mensaje, negocio, email)
     return jsonify(solicitud.to_dict()), 201
 
 

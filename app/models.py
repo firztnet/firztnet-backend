@@ -6,7 +6,8 @@ GARANTIA_MESES = 6
 
 
 # Negocios a los que puede pertenecer un cliente (en este orden canónico).
-NEGOCIOS_CLIENTE = ("firztnet", "firztweb")
+# "afiliados" es TechCompara (techcompara.es), el mismo nombre que usan las visitas y las ventas.
+NEGOCIOS_CLIENTE = ("firztnet", "firztweb", "afiliados")
 
 
 
@@ -28,7 +29,7 @@ class Cliente(db.Model):
     # True = alguien que escribió desde una web pero todavía no es cliente: no sale en la lista de
     # Clientes ni cuenta como "cliente nuevo" hasta que se pulsa "Convertir en cliente".
     es_contacto = db.Column(db.Boolean, default=False)
-    # Etiquetas de negocio separadas por coma: "firztnet", "firztweb" o "firztnet,firztweb".
+    # Etiquetas de negocio separadas por coma: "firztnet", "firztweb", "afiliados" o combinaciones ("firztnet,firztweb").
     # Una misma persona puede ser cliente de los dos (te trae un portátil y luego te pide una web).
     negocios = db.Column(db.String(60), default="firztnet")
 
@@ -328,7 +329,7 @@ class SolicitudServicio(db.Model):
     fecha = db.Column(db.DateTime, default=datetime.utcnow)
     atendida = db.Column(db.Boolean, default=False)
     origen = db.Column(db.String(20), default="existente")  # 'existente' o 'nuevo_contacto'
-    negocio = db.Column(db.String(20), default="firztnet")  # 'firztnet' o 'firztweb' — a cuál de tus dos negocios pertenece
+    negocio = db.Column(db.String(20), default="firztnet")  # 'firztnet', 'firztweb' o 'afiliados' (TechCompara) — a cuál de tus negocios pertenece
 
     cliente = db.relationship("Cliente")
 
