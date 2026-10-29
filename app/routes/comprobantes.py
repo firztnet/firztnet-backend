@@ -3,14 +3,19 @@ from flask import Blueprint, request, jsonify, send_file
 from app import db
 from app.models import Comprobante, Reparacion
 from app.pdf_generator import generar_pdf_comprobante
-from app.notificaciones import enviar_email_comprobante, generar_enlace_whatsapp
+from app.notificaciones import enviar_email_comprobante, generar_enlace_whatsapp, enlace_seguimiento_de
 
 comprobantes_bp = Blueprint("comprobantes", __name__)
 
-# La URL de tu panel en Vercel. Configúrala como variable de entorno
-# FRONTEND_URL en Railway si cambia (por ejemplo, cuando conectes tu
-# propio dominio firztnet.es).
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://firztnet-preview.vercel.app")
+
+def _enlace_actual(comprobante, reparacion):
+    """El enlace se calcula siempre con la dirección actual del panel (reparaciones.firztnet.es),
+    también en los comprobantes antiguos que se guardaron con la dirección de antes."""
+    enlace = enlace_seguimiento_de(reparacion)
+    if comprobante.enlace_seguimiento != enlace:
+        comprobante.enlace_seguimiento = enlace
+        db.session.commit()
+    return enlace
 
 
 @comprobantes_bp.post("")
@@ -23,7 +28,7 @@ def generar_comprobante():
     reparacion = Reparacion.query.get_or_404(data.get("reparacion_id"))
     tipo = data.get("tipo", "recepcion")
 
-    enlace = f"{FRONTEND_URL}/seguimiento?token={reparacion.token_seguimiento}"
+    enlace = enlace_seguimiento_de(reparacion)
 
     comprobante = Comprobante(
         reparacion_id=reparacion.id,
@@ -46,7 +51,7 @@ def descargar_pdf(comprobante_id):
     comprobante = Comprobante.query.get_or_404(comprobante_id)
     reparacion = Reparacion.query.get_or_404(comprobante.reparacion_id)
 
-    buffer = generar_pdf_comprobante(reparacion, comprobante.tipo, comprobante.enlace_seguimiento)
+    buffer = generar_pdf_comprobante(reparacion, comprobante.tipo, _enlace_actual(comprobante, reparacion))
     nombre_archivo = f"{reparacion.numero_orden}_{comprobante.tipo}.pdf"
     return send_file(buffer, mimetype="application/pdf", download_name=nombre_archivo)
 
@@ -60,7 +65,7 @@ def enviar_email(comprobante_id):
     reparacion = Reparacion.query.get_or_404(comprobante.reparacion_id)
 
     try:
-        buffer = generar_pdf_comprobante(reparacion, comprobante.tipo, comprobante.enlace_seguimiento)
+        buffer = generar_pdf_comprobante(reparacion, comprobante.tipo, _enlace_actual(comprobante, reparacion))
         nombre_archivo = f"{reparacion.numero_orden}_{comprobante.tipo}.pdf"
         resultado = enviar_email_comprobante(reparacion, comprobante.tipo, buffer, nombre_archivo)
     except Exception as e:

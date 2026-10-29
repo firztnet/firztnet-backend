@@ -21,13 +21,16 @@ def _origenes_permitidos():
     firztnet.es) con la variable de entorno ORIGENES_EXTRA, separados
     por comas."""
     origenes = [
-        os.environ.get("FRONTEND_URL", "https://firztnet-preview.vercel.app"),
+        os.environ.get("FRONTEND_URL", "https://reparaciones.firztnet.es").strip().rstrip("/"),
+        "https://reparaciones.firztnet.es",
+        # Dirección antigua: se sigue aceptando para que las etiquetas QR ya impresas sigan valiendo.
+        "https://firztnet-preview.vercel.app",
         "http://localhost:5173",  # Vite en local
         "http://localhost:3000",
     ]
     extra = os.environ.get("ORIGENES_EXTRA", "")
-    origenes += [o.strip() for o in extra.split(",") if o.strip()]
-    return origenes
+    origenes += [o.strip().rstrip("/") for o in extra.split(",") if o.strip()]
+    return list(dict.fromkeys(origenes))
 
 
 CLAVES_POR_DEFECTO = {

@@ -108,7 +108,14 @@ def _telefono_whatsapp(telefono):
     return digitos
 
 
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://firztnet-preview.vercel.app")
+# Dirección del panel (la de los enlaces de seguimiento, presupuestos y QR).
+# Se puede cambiar con la variable FRONTEND_URL en Railway. Sin la "/" final.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://reparaciones.firztnet.es").strip().rstrip("/")
+
+
+def enlace_seguimiento_de(reparacion):
+    """Enlace de seguimiento (y de firma del presupuesto) de una reparación, siempre con la dirección actual."""
+    return f"{FRONTEND_URL}/seguimiento?token={reparacion.token_seguimiento}"
 
 
 def renderizar_plantilla(texto_plantilla, reparacion):
@@ -139,7 +146,7 @@ def renderizar_plantilla(texto_plantilla, reparacion):
         "estado": ETIQUETAS_ESTADO.get(reparacion.estado_actual, reparacion.estado_actual or ""),
         "fecha_estimada": reparacion.fecha_estimada.strftime("%d/%m/%Y") if reparacion.fecha_estimada else "",
         "garantia": reparacion.fecha_fin_garantia.strftime("%d/%m/%Y") if reparacion.fecha_fin_garantia else "",
-        "enlace_seguimiento": f"{FRONTEND_URL}/seguimiento?token={reparacion.token_seguimiento}",
+        "enlace_seguimiento": enlace_seguimiento_de(reparacion),
         "enlace_resena": negocio.enlace_resenas_google or "",
         "monto": f"{float(monto_a_mostrar):.2f}",
         "direccion": reparacion.direccion_servicio or "",
