@@ -41,7 +41,7 @@ SISTEMAS_POR_DEFECTO = [
     ("Reformas", "https://reformas.firztnet.es/", "sistema"),
     ("Logística", "https://logistica.firztnet.es/", "sistema"),
     ("Reciclaje", "https://admin.reciclar.firztnet.es/plataforma/", "sistema"),
-    ("Campus", "https://campus.firztnet.es/", "sistema"),
+    ("Campus", "https://campus.firztnet.es/", "web"),
     ("Reparaciones (panel)", "https://reparaciones.firztnet.es/", "sistema"),
     ("Firztnet", "https://firztnet.es/", "web"),
     ("Firztweb", "https://webs.firztnet.es/", "web"),
@@ -66,6 +66,10 @@ def duracion(minutos):
 
 def asegurar_por_defecto():
     """La primera vez, apunta tus sistemas y webs para vigilarlos."""
+    campus = SistemaVigilado.query.filter_by(nombre="Campus", tipo="sistema", origen="manual").first()
+    if campus:  # Campus se vigila como una web, no como un sistema
+        campus.tipo = "web"
+        db.session.commit()
     if SistemaVigilado.query.count() == 0:
         for i, (nombre, url, tipo) in enumerate(SISTEMAS_POR_DEFECTO):
             db.session.add(SistemaVigilado(nombre=nombre, url=url, tipo=tipo, orden=i))
@@ -219,9 +223,12 @@ def sincronizar_webs_clientes(sistema, locales):
     vigiladas = {s.local_id: s for s in SistemaVigilado.query.filter_by(origen="auto", sistema_cliente=sistema).all()}
     ultimo = db.session.query(db.func.max(SistemaVigilado.orden)).scalar() or 0
     for l in locales:
-        quiere = bool(l.direccion_web) and l.estado in ("prueba", "activo")
+        uso = _json_seguro(l.uso_json)
+        # Solo clientes en prueba o activos, y que tengan web (en Reformas la web es opcional)
+        quiere = bool(l.direccion_web) and l.estado in ("prueba", "activo") and uso.get("tiene_web", True) is not False
         s = vigiladas.pop(l.id, None)
-        url = f"https://{l.direccion_web}/" if l.direccion_web else None
+        # Una web en su subdominio lleva «/» al final; una con ruta (Logística: dominio/w/empresa) no, o da error
+        url = (f"https://{l.direccion_web}" + ("" if "/" in l.direccion_web else "/")) if l.direccion_web else None
         if quiere and not s:
             ultimo += 1
             db.session.add(SistemaVigilado(nombre=l.nombre, url=url, tipo="web", origen="auto", local_id=l.id,
@@ -234,6 +241,15 @@ def sincronizar_webs_clientes(sistema, locales):
             _quitar(s)
     for s in vigiladas.values():  # clientes que ya no vienen en la lista
         _quitar(s)
+
+
+def _json_seguro(texto):
+    import json
+    try:
+        valor = json.loads(texto) if texto else {}
+        return valor if isinstance(valor, dict) else {}
+    except ValueError:
+        return {}
 
 
 def _quitar(s):

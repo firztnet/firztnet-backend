@@ -449,7 +449,7 @@ def _informe(l, mes):
                      for k, n in sorted(origenes.items(), key=lambda kv: -kv[1])],
         "reservas_web": sum(int(r.get("n") or 0) for r in res_mes),
         "reservas_web_mes_anterior": sum(int(r.get("n") or 0) for r in res_ant),
-        "reservas_tipo": {"peluquerias": "citas", "hosteleria": "reservas de mesa"}.get(l.sistema),
+        "reservas_tipo": {"peluquerias": "citas", "hosteleria": "reservas de mesa", "reformas": "solicitudes de presupuesto", "logistica": "solicitudes por la web"}.get(l.sistema),
     }
 
 
