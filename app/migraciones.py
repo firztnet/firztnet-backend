@@ -63,6 +63,11 @@ COLUMNAS_NUEVAS = {
         ("telefono_bizum", "VARCHAR(20)"),
         ("visitas_vistas_hasta", "DATETIME"),
     ],
+    # Firztnet Central fase 4: visitas de la web y reservas por internet de cada cliente de tus sistemas
+    "locales_clientes": [
+        ("visitas_json", "TEXT"),
+        ("reservas_json", "TEXT"),
+    ],
     "movimientos_financieros": [
         ("anulado", "BOOLEAN DEFAULT 0"),
         ("motivo_anulacion", "VARCHAR(200)"),

@@ -261,6 +261,12 @@ def _ficha(l, peticiones=None, completa=False):
         "ayudas_abiertas": len(abiertas), "ayudas_total": len(peticiones or []),
         "notas": l.notas, "sincronizado": (l.sincronizado.isoformat() + "Z") if l.sincronizado else None,
     }
+    visitas = _json(getattr(l, "visitas_json", None), [])
+    if visitas:
+        from datetime import date
+        este = date.today().strftime("%Y-%m")
+        ficha["visitas_mes"] = sum(int(v.get("visits") or 0) for v in visitas if v.get("date", "").startswith(este))
+        ficha["visitas_mes_anterior"] = sum(int(v.get("visits") or 0) for v in visitas if v.get("date", "").startswith(_mes_anterior(este)))
     if completa:
         ficha["aparatos"] = aparatos
         ficha["ayudas"] = [p.to_dict() for p in (peticiones or [])]
@@ -338,6 +344,10 @@ def recibir_locales():
         l.uso_json = json.dumps(d.get("uso"))[:4000] if isinstance(d.get("uso"), dict) else None
         l.negocios_json = json.dumps(d.get("negocios")[:20])[:4000] if isinstance(d.get("negocios"), list) else None
         l.aparatos_json = json.dumps(d.get("aparatos")[:100])[:20000] if isinstance(d.get("aparatos"), list) else None
+        if isinstance(d.get("visitas"), list):
+            l.visitas_json = json.dumps(d["visitas"][:3000])[:200000]
+        if isinstance(d.get("reservas_web"), list):
+            l.reservas_json = json.dumps(d["reservas_web"][:50])[:5000]
         l.sincronizado = ahora
         _avisar_fin_de_prueba(l, sistema)
     for l in LocalCliente.query.filter_by(sistema=sistema).all():
@@ -371,3 +381,80 @@ def notas_cliente_sistema(local_id):
         l.notas = (data.get("notas") or "").strip()[:4000] or None
     db.session.commit()
     return jsonify(_ficha(l, _peticiones_de(l), completa=True))
+
+
+# ---------- Fase 4: informe mensual de visitas de la web de cada cliente ----------
+
+NOMBRE_ORIGEN = {
+    "directo": "Escriben la dirección o la tienen guardada", "google": "Google (búsqueda y mapas)",
+    "instagram": "Instagram", "facebook": "Facebook", "tiktok": "TikTok", "qr": "Código QR del local",
+    "whatsapp": "WhatsApp", "buscadores": "Otros buscadores", "otros": "Otras webs",
+}
+DIAS_SEMANA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def _mes_anterior(mes):
+    anio, m = int(mes[:4]), int(mes[5:7])
+    return f"{anio - 1}-12" if m == 1 else f"{anio}-{m - 1:02d}"
+
+
+def _informe(l, mes):
+    import calendar
+    from datetime import date
+    visitas = _json(getattr(l, "visitas_json", None), [])
+    reservas = _json(getattr(l, "reservas_json", None), [])
+    meses = sorted({v["date"][:7] for v in visitas if isinstance(v, dict) and v.get("date")}, reverse=True)
+    if not mes:
+        mes = meses[0] if meses else date.today().strftime("%Y-%m")
+    anterior = _mes_anterior(mes)
+    del_mes = [v for v in visitas if v.get("date", "").startswith(mes)]
+    total = sum(int(v.get("visits") or 0) for v in del_mes)
+    total_anterior = sum(int(v.get("visits") or 0) for v in visitas if v.get("date", "").startswith(anterior))
+
+    anio, m = int(mes[:4]), int(mes[5:7])
+    dias_mes = calendar.monthrange(anio, m)[1]
+    por_dia = {f"{mes}-{d:02d}": 0 for d in range(1, dias_mes + 1)}
+    por_semana = [0] * 7
+    dispositivos = {"movil": 0, "ordenador": 0}
+    origenes = {}
+    for v in del_mes:
+        n = int(v.get("visits") or 0)
+        por_dia[v["date"]] = por_dia.get(v["date"], 0) + n
+        por_semana[date.fromisoformat(v["date"]).weekday()] += n
+        dispositivos[v.get("device", "movil")] = dispositivos.get(v.get("device", "movil"), 0) + n
+        origenes[v.get("source", "otros")] = origenes.get(v.get("source", "otros"), 0) + n
+    mejor_dia = max(por_dia.items(), key=lambda kv: kv[1]) if total else None
+    mejor_semana = max(range(7), key=lambda i: por_semana[i]) if total else None
+    res_mes = [r for r in reservas if r.get("mes") == mes]
+    res_ant = [r for r in reservas if r.get("mes") == anterior]
+    return {
+        "local": {"id": l.id, "nombre": l.nombre, "sistema": l.sistema, "direccion_web": l.direccion_web,
+                  "contacto_nombre": l.contacto_nombre, "contacto_email": l.contacto_email, "contacto_telefono": l.contacto_telefono},
+        "mes": mes,
+        "meses": meses,
+        "visitas": total,
+        "visitas_mes_anterior": total_anterior,
+        "cambio_pct": round((total - total_anterior) * 100 / total_anterior) if total_anterior else None,
+        "media_diaria": round(total / dias_mes, 1),
+        "por_dia": [{"fecha": k, "visitas": n} for k, n in sorted(por_dia.items())],
+        "por_dia_semana": [{"dia": DIAS_SEMANA[i], "visitas": por_semana[i]} for i in range(7)],
+        "mejor_dia": {"fecha": mejor_dia[0], "visitas": mejor_dia[1]} if mejor_dia else None,
+        "mejor_dia_semana": DIAS_SEMANA[mejor_semana] if mejor_semana is not None else None,
+        "movil_pct": round(dispositivos.get("movil", 0) * 100 / total) if total else None,
+        "origenes": [{"origen": k, "nombre": NOMBRE_ORIGEN.get(k, k), "visitas": n, "pct": round(n * 100 / total)}
+                     for k, n in sorted(origenes.items(), key=lambda kv: -kv[1])],
+        "reservas_web": sum(int(r.get("n") or 0) for r in res_mes),
+        "reservas_web_mes_anterior": sum(int(r.get("n") or 0) for r in res_ant),
+        "reservas_tipo": "citas" if l.sistema == "peluquerias" else "reservas de mesa",
+    }
+
+
+@central_bp.get("/clientes/<int:local_id>/informe")
+def informe_visitas(local_id):
+    import re
+    from app.models import LocalCliente
+    l = LocalCliente.query.get_or_404(local_id)
+    mes = request.args.get("mes") or ""
+    if mes and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", mes):
+        return jsonify({"error": "Mes no válido (AAAA-MM)"}), 400
+    return jsonify(_informe(l, mes))

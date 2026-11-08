@@ -975,6 +975,8 @@ class LocalCliente(db.Model):
     uso_json = db.Column(db.Text)
     negocios_json = db.Column(db.Text)
     aparatos_json = db.Column(db.Text)
+    visitas_json = db.Column(db.Text)  # fase 4: visitas de su web por día, aparato y origen
+    reservas_json = db.Column(db.Text)  # fase 4: reservas por internet por mes
     notas = db.Column(db.Text)
     sincronizado = db.Column(db.DateTime, default=datetime.utcnow)
     aviso_prueba = db.Column(db.String(10))  # fin de prueba del que ya se avisó (para avisar una sola vez)
