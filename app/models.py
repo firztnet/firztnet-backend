@@ -921,6 +921,10 @@ class SistemaVigilado(db.Model):
     caido_desde = db.Column(db.DateTime)
     ssl_caduca = db.Column(db.DateTime)
     ssl_comprobado = db.Column(db.DateTime)
+    # Webs de clientes que se vigilan solas (se añaden y quitan con la lista de clientes de cada plataforma)
+    origen = db.Column(db.String(10), default="manual")  # 'manual' o 'auto'
+    local_id = db.Column(db.Integer)  # LocalCliente al que pertenece (solo las automáticas)
+    sistema_cliente = db.Column(db.String(20))  # de qué plataforma es ese cliente (reciclaje, hosteleria...)
     creado = db.Column(db.DateTime, default=datetime.utcnow)
 
 

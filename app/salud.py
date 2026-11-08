@@ -24,6 +24,8 @@ from app import db
 from app.models import IncidenciaSistema, SistemaVigilado
 
 INTERVALO_MIN = 2
+INTERVALO_AUTO_MIN = 5          # las webs de clientes, cada 5 minutos (menos trabajo)
+AGRUPAR_DESDE = 3               # 3 o más webs de la misma plataforma a la vez = un solo aviso
 FALLOS_PARA_CAIDO = 2           # dos fallos seguidos (unos 4 min) = caído; así un parpadeo no te despierta
 LENTO_MS = 5000                 # más de 5 s en responder = lento
 TIEMPO_MAX = 12                 # segundos de espera antes de darlo por fallido
@@ -119,12 +121,21 @@ def comprobar_todo():
         _ronda()
 
 
+def _toca(s, ahora):
+    """Las webs de clientes se comprueban cada 5 minutos; tus sistemas, en cada ronda (2 min)."""
+    if s.origen != "auto" or not s.ultima_comprobacion:
+        return True
+    return ahora - s.ultima_comprobacion >= timedelta(minutes=INTERVALO_AUTO_MIN, seconds=-30)
+
+
 def _ronda():
     asegurar_por_defecto()
-    sistemas = SistemaVigilado.query.filter_by(activo=True).order_by(SistemaVigilado.orden).all()
+    ahora = datetime.utcnow()
+    sistemas = [s for s in SistemaVigilado.query.filter_by(activo=True).order_by(SistemaVigilado.orden).all() if _toca(s, ahora)]
     if not sistemas:
         return
-    ahora = datetime.utcnow()
+    # Avisos de webs de clientes: se juntan por plataforma para mandar uno solo si caen varias a la vez
+    caidas, vueltas = {}, {}
     urls = [s.url for s in sistemas]
     revisar_ssl = [s.url if (not s.ssl_comprobado or ahora - s.ssl_comprobado > SSL_CADA) else None for s in sistemas]
     # Todas a la vez (en paralelo): una web lenta no retrasa a las demás
@@ -143,7 +154,7 @@ def _ronda():
                 s.ssl_caduca = caduca
                 dias = (caduca - ahora).days
                 # Aviso una sola vez al cruzar el umbral (no cada hora)
-                if dias <= SSL_AVISO_DIAS and (not antes or (antes - ahora).days > SSL_AVISO_DIAS):
+                if s.origen != "auto" and dias <= SSL_AVISO_DIAS and (not antes or (antes - ahora).days > SSL_AVISO_DIAS):
                     _avisar(f"🔒 El candado HTTPS de {s.nombre} caduca en {dias} día(s).\n{s.url}\nNormalmente se renueva solo; si no, revisa el dominio en su alojamiento.")
         if r["ok"]:
             s.ms_medio = r["ms"] if not s.ms_medio else int(s.ms_medio * 0.8 + r["ms"] * 0.2)
@@ -154,7 +165,10 @@ def _ronda():
                 if incidencia:
                     incidencia.fin = ahora
                     minutos = max(1, round((ahora - incidencia.inicio).total_seconds() / 60))
-                _avisar(f"🟢 {s.nombre} vuelve a funcionar.\nEstuvo caído {duracion(minutos)}.\n{s.url}")
+                if s.origen == "auto":
+                    vueltas.setdefault(s.sistema_cliente or "otros", []).append((s, minutos))
+                else:
+                    _avisar(f"🟢 {s.nombre} vuelve a funcionar.\nEstuvo caído {duracion(minutos)}.\n{s.url}")
             s.fallos_seguidos = 0
             s.caido_desde = None
             s.estado = "lento" if r["ms"] >= LENTO_MS else "ok"
@@ -163,13 +177,68 @@ def _ronda():
             s.fallos_seguidos = (s.fallos_seguidos or 0) + 1
             if s.fallos_seguidos >= FALLOS_PARA_CAIDO and s.estado != "caido":
                 # El primer fallo fue hace ~2 minutos: la caída empezó entonces
-                inicio = ahora - timedelta(minutes=INTERVALO_MIN * (s.fallos_seguidos - 1))
+                inicio = ahora - timedelta(minutes=(INTERVALO_AUTO_MIN if s.origen == "auto" else INTERVALO_MIN) * (s.fallos_seguidos - 1))
                 s.estado = "caido"
                 s.caido_desde = inicio
                 db.session.add(IncidenciaSistema(sistema_id=s.id, inicio=inicio, motivo=r["error"]))
-                _avisar(f"🔴 {s.nombre} NO RESPONDE desde las {hora_madrid(inicio)}.\nMotivo: {r['error']}\n{s.url}")
+                if s.origen == "auto":
+                    caidas.setdefault(s.sistema_cliente or "otros", []).append(s)
+                else:
+                    _avisar(f"🔴 {s.nombre} NO RESPONDE desde las {hora_madrid(inicio)}.\nMotivo: {r['error']}\n{s.url}")
             # Un solo fallo suelto no cambia el semáforo: se espera a la siguiente ronda
     db.session.commit()
+    _avisar_webs_clientes(caidas, vueltas)
+
+
+NOMBRE_PLATAFORMA = {"hosteleria": "Hostelería", "peluquerias": "Peluquerías", "reciclaje": "Reciclaje", "reformas": "Reformas", "logistica": "Logística"}
+
+
+def _avisar_webs_clientes(caidas, vueltas):
+    """Una web suelta: su propio aviso. Varias de la misma plataforma a la vez: un solo aviso con la lista
+    (casi seguro es la plataforma entera, que comparte servidor)."""
+    for sistema, lista in caidas.items():
+        plataforma = NOMBRE_PLATAFORMA.get(sistema, sistema)
+        if len(lista) >= AGRUPAR_DESDE:
+            nombres = ", ".join(s.nombre for s in lista[:8]) + (f" y {len(lista) - 8} más" if len(lista) > 8 else "")
+            _avisar(f"🔴 {len(lista)} webs de clientes de {plataforma} NO RESPONDEN a la vez.\nProbablemente es el servidor de {plataforma}.\nAfectadas: {nombres}")
+        else:
+            for s in lista:
+                _avisar(f"🔴 La web de {s.nombre} ({plataforma}) NO RESPONDE desde las {hora_madrid(s.caido_desde)}.\nMotivo: {s.ultimo_error}\n{s.url}")
+    for sistema, lista in vueltas.items():
+        plataforma = NOMBRE_PLATAFORMA.get(sistema, sistema)
+        if len(lista) >= AGRUPAR_DESDE:
+            _avisar(f"🟢 Vuelven a funcionar {len(lista)} webs de clientes de {plataforma}.")
+        else:
+            for s, minutos in lista:
+                _avisar(f"🟢 La web de {s.nombre} ({plataforma}) vuelve a funcionar.\nEstuvo caída {duracion(minutos)}.\n{s.url}")
+
+
+def sincronizar_webs_clientes(sistema, locales):
+    """Se llama con cada lista de clientes que manda una plataforma: vigila la web de los clientes
+    en prueba o activos y deja de vigilar la de los que se dan de baja, se suspenden o terminan la prueba."""
+    vigiladas = {s.local_id: s for s in SistemaVigilado.query.filter_by(origen="auto", sistema_cliente=sistema).all()}
+    ultimo = db.session.query(db.func.max(SistemaVigilado.orden)).scalar() or 0
+    for l in locales:
+        quiere = bool(l.direccion_web) and l.estado in ("prueba", "activo")
+        s = vigiladas.pop(l.id, None)
+        url = f"https://{l.direccion_web}/" if l.direccion_web else None
+        if quiere and not s:
+            ultimo += 1
+            db.session.add(SistemaVigilado(nombre=l.nombre, url=url, tipo="web", origen="auto", local_id=l.id,
+                                           sistema_cliente=sistema, orden=1000 + ultimo))
+        elif quiere and s:
+            s.nombre = l.nombre
+            if s.url != url:
+                s.url, s.ssl_comprobado = url, None
+        elif not quiere and s:
+            _quitar(s)
+    for s in vigiladas.values():  # clientes que ya no vienen en la lista
+        _quitar(s)
+
+
+def _quitar(s):
+    IncidenciaSistema.query.filter_by(sistema_id=s.id).delete()
+    db.session.delete(s)
 
 
 def cerrar_incidencias_abiertas(sistema):
@@ -201,6 +270,8 @@ def resumen():
             "nombre": s.nombre,
             "url": s.url,
             "tipo": s.tipo,
+            "origen": s.origen or "manual",
+            "sistema_cliente": s.sistema_cliente,
             "activo": bool(s.activo),
             "estado": s.estado if s.activo else "pausado",
             "codigo": s.ultimo_codigo,
@@ -213,4 +284,4 @@ def resumen():
             "ssl_dias": (s.ssl_caduca - ahora).days if s.ssl_caduca else None,
         })
     incidencias = IncidenciaSistema.query.order_by(IncidenciaSistema.inicio.desc()).limit(40).all()
-    return {"sistemas": lista, "incidencias": [i.to_dict() for i in incidencias], "intervalo_min": INTERVALO_MIN}
+    return {"sistemas": lista, "incidencias": [i.to_dict() for i in incidencias], "intervalo_min": INTERVALO_MIN, "intervalo_auto_min": INTERVALO_AUTO_MIN}

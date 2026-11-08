@@ -354,6 +354,10 @@ def recibir_locales():
         if l.slug not in vistos and l.estado != "baja":
             l.estado = "baja"
             l.dias = None
+    db.session.flush()
+    # Vigilancia automática de la web de cada cliente (se añade o se quita sola)
+    from app.salud import sincronizar_webs_clientes
+    sincronizar_webs_clientes(sistema, LocalCliente.query.filter_by(sistema=sistema).all())
     db.session.commit()
     return jsonify({"ok": True, "recibidos": len(vistos)})
 
