@@ -260,6 +260,7 @@ def _ficha(l, peticiones=None, completa=False):
         "num_aparatos": len(aparatos), "aparatos_sin_conexion": len(sin_conexion),
         "ayudas_abiertas": len(abiertas), "ayudas_total": len(peticiones or []),
         "notas": l.notas, "sincronizado": (l.sincronizado.isoformat() + "Z") if l.sincronizado else None,
+        "cuota_manual_cents": l.cuota_manual_cents, "ingreso_mes_cents": ingreso_mensual(l),
     }
     visitas = _json(getattr(l, "visitas_json", None), [])
     if visitas:
@@ -324,6 +325,8 @@ def recibir_locales():
         slug = str(d["slug"])[:60]
         vistos.add(slug)
         l = LocalCliente.query.filter_by(sistema=sistema, slug=slug).first()
+        nuevo = l is None
+        estado_antes = None if nuevo else l.estado
         if not l:
             l = LocalCliente(sistema=sistema, slug=slug, nombre=str(d["nombre"])[:120])
             db.session.add(l)
@@ -350,11 +353,15 @@ def recibir_locales():
             l.reservas_json = json.dumps(d["reservas_web"][:50])[:5000]
         l.sincronizado = ahora
         _avisar_fin_de_prueba(l, sistema)
+        db.session.flush()
+        _anotar_evento(l, nuevo, estado_antes)
     for l in LocalCliente.query.filter_by(sistema=sistema).all():
         if l.slug not in vistos and l.estado != "baja":
+            _anotar_evento(l, False, l.estado, "baja")
             l.estado = "baja"
             l.dias = None
     db.session.flush()
+    _foto_del_dia()
     # Vigilancia automática de la web de cada cliente (se añade o se quita sola)
     from app.salud import sincronizar_webs_clientes
     sincronizar_webs_clientes(sistema, LocalCliente.query.filter_by(sistema=sistema).all())
@@ -383,6 +390,15 @@ def notas_cliente_sistema(local_id):
     data = request.get_json(silent=True) or {}
     if "notas" in data:
         l.notas = (data.get("notas") or "").strip()[:4000] or None
+    if "cuota_manual_cents" in data:
+        valor = data.get("cuota_manual_cents")
+        if valor in (None, ""):
+            l.cuota_manual_cents = None
+        elif isinstance(valor, int) and 0 <= valor <= 10_000_000:
+            l.cuota_manual_cents = valor
+        else:
+            return jsonify({"error": "Cuota no válida"}), 400
+        _foto_del_dia()
     db.session.commit()
     return jsonify(_ficha(l, _peticiones_de(l), completa=True))
 
@@ -462,3 +478,134 @@ def informe_visitas(local_id):
     if mes and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", mes):
         return jsonify({"error": "Mes no válido (AAAA-MM)"}), 400
     return jsonify(_informe(l, mes))
+
+
+# ---------- Cuadro de mando: cómo va tu negocio ----------
+
+PERIODO_MESES = {"mensual": 1, "trimestral": 3, "semestral": 6, "anual": 12}
+
+
+def ingreso_mensual(l):
+    """Lo que te deja ese cliente al mes: la cuota que pongas tú o, si no, la de su sistema (pasada a mensual)."""
+    if l.cuota_manual_cents is not None:
+        return l.cuota_manual_cents
+    uso = _json(l.uso_json, None) or {}
+    cuota = uso.get("cuota_cents") or 0
+    meses = PERIODO_MESES.get(uso.get("periodo") or "mensual", 1)
+    return int(round(cuota / meses)) if isinstance(cuota, (int, float)) else 0
+
+
+def _anotar_evento(l, nuevo, antes, despues=None):
+    from app.models import EventoCliente
+    despues = despues or l.estado
+    if nuevo:
+        fecha = None
+        try:
+            fecha = datetime.fromisoformat((l.alta or "").replace("Z", "")[:19]) if l.alta else None
+        except ValueError:
+            fecha = None
+        db.session.add(EventoCliente(local_id=l.id, tipo="alta", antes=None, fecha=fecha or datetime.utcnow()))
+        return
+    if antes != despues and despues:
+        db.session.add(EventoCliente(local_id=l.id, tipo=despues, antes=antes))
+
+
+def _foto_del_dia():
+    """Guarda (o actualiza) la foto de hoy: ingresos fijos al mes, clientes que pagan y en prueba."""
+    from datetime import date
+    from app.models import LocalCliente, ResumenDiario
+    locales = LocalCliente.query.all()
+    pagando = [l for l in locales if l.estado == "activo"]
+    foto = ResumenDiario.query.filter_by(fecha=date.today()).first() or ResumenDiario(fecha=date.today())
+    foto.ingresos_mes_cents = sum(ingreso_mensual(l) for l in pagando)
+    foto.clientes_pagando = len(pagando)
+    foto.clientes_prueba = sum(1 for l in locales if l.estado == "prueba")
+    db.session.add(foto)
+
+
+@central_bp.get("/cuadro")
+def cuadro_de_mando():
+    from datetime import date, timedelta
+    from app.models import EventoCliente, LocalCliente, ResumenDiario, SistemaVigilado
+    hoy = date.today()
+    inicio_mes = datetime(hoy.year, hoy.month, 1)
+    locales = LocalCliente.query.all()
+    vivos = [l for l in locales if l.estado != "baja"]
+    pagando = [l for l in vivos if l.estado == "activo"]
+    en_prueba = [l for l in vivos if l.estado == "prueba"]
+    ingresos = sum(ingreso_mensual(l) for l in pagando)
+
+    # Comparación con hace 30 días (la foto más cercana)
+    foto_antes = (ResumenDiario.query.filter(ResumenDiario.fecha <= hoy - timedelta(days=30))
+                  .order_by(ResumenDiario.fecha.desc()).first())
+    historia = ResumenDiario.query.filter(ResumenDiario.fecha >= hoy - timedelta(days=365)).order_by(ResumenDiario.fecha).all()
+
+    def eventos_desde(tipo, desde):
+        return EventoCliente.query.filter(EventoCliente.tipo == tipo, EventoCliente.fecha >= desde).count()
+
+    # Conversión de pruebas en los últimos 90 días: pasaron a activo / (pasaron a activo + terminaron sin pagar)
+    hace90 = datetime.utcnow() - timedelta(days=90)
+    convertidas = EventoCliente.query.filter(EventoCliente.tipo == "activo", EventoCliente.antes.in_(["prueba", "prueba_vencida"]), EventoCliente.fecha >= hace90).count()
+    perdidas = eventos_desde("prueba_vencida", hace90)
+    conversion = round(convertidas * 100 / (convertidas + perdidas)) if (convertidas + perdidas) else None
+
+    por_sistema = {}
+    for l in vivos:
+        s = por_sistema.setdefault(l.sistema, {"sistema": l.sistema, "clientes": 0, "pagando": 0, "prueba": 0, "ingresos_mes_cents": 0})
+        s["clientes"] += 1
+        if l.estado == "activo":
+            s["pagando"] += 1
+            s["ingresos_mes_cents"] += ingreso_mensual(l)
+        if l.estado == "prueba":
+            s["prueba"] += 1
+
+    # Lo que viene: pruebas que terminan y renovaciones en los próximos 14 días
+    proximos = []
+    for l in vivos:
+        if l.estado == "prueba" and l.dias is not None and 0 <= l.dias <= 14:
+            proximos.append({"id": l.id, "nombre": l.nombre, "sistema": l.sistema, "tipo": "prueba", "dias": l.dias, "fecha": l.prueba_hasta, "telefono": l.contacto_telefono})
+        elif l.estado == "activo" and l.renueva and l.dias is not None and l.dias <= 14:
+            proximos.append({"id": l.id, "nombre": l.nombre, "sistema": l.sistema, "tipo": "vencida" if l.renovacion_vencida or l.dias < 0 else "renovacion",
+                             "dias": l.dias, "fecha": l.renueva, "telefono": l.contacto_telefono, "importe_cents": ingreso_mensual(l)})
+    proximos.sort(key=lambda p: p["dias"])
+
+    # Ayuda: abiertas y tiempo medio de primera respuesta (últimos 90 días)
+    abiertas = PeticionAyuda.query.filter(PeticionAyuda.estado != "resuelta").count()
+    respondidas = PeticionAyuda.query.filter(PeticionAyuda.respuesta_fecha.isnot(None), PeticionAyuda.fecha >= hace90).all()
+    minutos = [(p.respuesta_fecha - p.fecha).total_seconds() / 60 for p in respondidas if p.respuesta_fecha and p.fecha]
+    vigilados = SistemaVigilado.query.filter_by(activo=True).all()
+
+    nombres = {l.id: (l.nombre, l.sistema) for l in locales}
+    recientes = [{"tipo": e.tipo, "antes": e.antes, "fecha": e.fecha.isoformat() + "Z", "nombre": nombres.get(e.local_id, ("?", ""))[0],
+                  "sistema": nombres.get(e.local_id, ("", ""))[1]}
+                 for e in EventoCliente.query.order_by(EventoCliente.fecha.desc()).limit(12).all()]
+
+    visitas_mes = 0
+    for l in vivos:
+        for v in _json(l.visitas_json, []):
+            if str(v.get("date", "")).startswith(hoy.strftime("%Y-%m")):
+                visitas_mes += int(v.get("visits") or 0)
+
+    return jsonify({
+        "ingresos_mes_cents": ingresos,
+        "ingresos_hace_30_cents": foto_antes.ingresos_mes_cents if foto_antes else None,
+        "ingresos_anual_cents": ingresos * 12,
+        "clientes": len(vivos),
+        "pagando": len(pagando),
+        "en_prueba": len(en_prueba),
+        "pruebas_7_dias": sum(1 for l in en_prueba if l.dias is not None and l.dias <= 7),
+        "sin_cuota": sum(1 for l in pagando if ingreso_mensual(l) == 0),
+        "renovaciones_vencidas": sum(1 for l in pagando if l.renovacion_vencida),
+        "altas_mes": sum(1 for l in locales if (l.alta or "") >= inicio_mes.strftime("%Y-%m-%d")),
+        "bajas_mes": eventos_desde("baja", inicio_mes),
+        "conversion_pct": conversion,
+        "ticket_medio_cents": round(ingresos / len(pagando)) if pagando else 0,
+        "ayudas_abiertas": abiertas,
+        "respuesta_media_min": round(sum(minutos) / len(minutos)) if minutos else None,
+        "salud": {"total": len(vigilados), "caidos": sum(1 for s in vigilados if s.estado == "caido")},
+        "visitas_webs_mes": visitas_mes,
+        "por_sistema": sorted(por_sistema.values(), key=lambda s: -s["ingresos_mes_cents"]),
+        "historia": [{"fecha": h.fecha.isoformat(), "ingresos_mes_cents": h.ingresos_mes_cents, "pagando": h.clientes_pagando, "prueba": h.clientes_prueba} for h in historia],
+        "proximos": proximos[:15],
+        "recientes": recientes,
+    })

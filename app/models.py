@@ -984,5 +984,27 @@ class LocalCliente(db.Model):
     notas = db.Column(db.Text)
     sincronizado = db.Column(db.DateTime, default=datetime.utcnow)
     aviso_prueba = db.Column(db.String(10))  # fin de prueba del que ya se avisó (para avisar una sola vez)
+    cuota_manual_cents = db.Column(db.Integer)  # lo que te paga al mes, si lo pones tú (manda sobre lo que diga su sistema)
 
     __table_args__ = (db.UniqueConstraint("sistema", "slug", name="uq_local_sistema_slug"),)
+
+
+class EventoCliente(db.Model):
+    """Cuadro de mando: cada cambio de estado de un cliente de tus sistemas (alta, pasa a
+    activo, termina la prueba, se suspende, se da de baja...), para contar conversiones y bajas."""
+    __tablename__ = "eventos_clientes"
+    id = db.Column(db.Integer, primary_key=True)
+    local_id = db.Column(db.Integer, db.ForeignKey("locales_clientes.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo = db.Column(db.String(20), nullable=False)  # alta, activo, prueba, prueba_vencida, suspendido, baja
+    antes = db.Column(db.String(20))
+    fecha = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+class ResumenDiario(db.Model):
+    """Cuadro de mando: una foto al día de tus ingresos fijos y tus clientes, para ver cómo evolucionan."""
+    __tablename__ = "resumen_diario"
+    id = db.Column(db.Integer, primary_key=True)
+    fecha = db.Column(db.Date, nullable=False, unique=True)
+    ingresos_mes_cents = db.Column(db.Integer, default=0)
+    clientes_pagando = db.Column(db.Integer, default=0)
+    clientes_prueba = db.Column(db.Integer, default=0)

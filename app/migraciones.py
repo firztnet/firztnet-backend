@@ -73,6 +73,7 @@ COLUMNAS_NUEVAS = {
     "locales_clientes": [
         ("visitas_json", "TEXT"),
         ("reservas_json", "TEXT"),
+        ("cuota_manual_cents", "INTEGER"),
     ],
     "movimientos_financieros": [
         ("anulado", "BOOLEAN DEFAULT 0"),
