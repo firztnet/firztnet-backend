@@ -947,3 +947,36 @@ class IncidenciaSistema(db.Model):
             "minutos": max(1, round((fin - self.inicio).total_seconds() / 60)),
             "motivo": self.motivo,
         }
+
+
+class LocalCliente(db.Model):
+    """Firztnet Central — fase 3: cada cliente de tus plataformas (un bar, una
+    peluquería...), tal como lo manda su plataforma cada 10 minutos. Es la
+    «ficha única»: estado, prueba o renovación, contacto, uso, aparatos.
+    Las notas son tuyas y no las toca la sincronización."""
+    __tablename__ = "locales_clientes"
+    id = db.Column(db.Integer, primary_key=True)
+    sistema = db.Column(db.String(20), nullable=False, index=True)
+    slug = db.Column(db.String(60), nullable=False)
+    nombre = db.Column(db.String(120), nullable=False)
+    tipo = db.Column(db.String(20))
+    estado = db.Column(db.String(20))  # 'prueba', 'activo', 'suspendido', 'prueba_vencida', 'baja'
+    dias = db.Column(db.Integer)  # días que quedan de prueba (o hasta renovar)
+    prueba_hasta = db.Column(db.String(10))
+    renueva = db.Column(db.String(10))
+    renovacion_vencida = db.Column(db.Boolean, default=False)
+    motivo_suspension = db.Column(db.String(300))
+    contacto_nombre = db.Column(db.String(120))
+    contacto_email = db.Column(db.String(160))
+    contacto_telefono = db.Column(db.String(40))
+    direccion_web = db.Column(db.String(200))
+    alta = db.Column(db.String(40))
+    ultimo_uso = db.Column(db.String(40))
+    uso_json = db.Column(db.Text)
+    negocios_json = db.Column(db.Text)
+    aparatos_json = db.Column(db.Text)
+    notas = db.Column(db.Text)
+    sincronizado = db.Column(db.DateTime, default=datetime.utcnow)
+    aviso_prueba = db.Column(db.String(10))  # fin de prueba del que ya se avisó (para avisar una sola vez)
+
+    __table_args__ = (db.UniqueConstraint("sistema", "slug", name="uq_local_sistema_slug"),)

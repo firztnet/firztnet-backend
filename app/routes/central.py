@@ -232,3 +232,142 @@ def borrar_sistema(sistema_id):
     db.session.delete(s)
     db.session.commit()
     return jsonify({"ok": True})
+
+
+# ---------- Fase 3: ficha única de cliente ----------
+
+def _json(texto, defecto):
+    import json
+    try:
+        return json.loads(texto) if texto else defecto
+    except ValueError:
+        return defecto
+
+
+def _ficha(l, peticiones=None, completa=False):
+    from datetime import datetime, timedelta
+    aparatos = _json(l.aparatos_json, [])
+    hace7 = (datetime.utcnow() - timedelta(days=7)).isoformat()
+    sin_conexion = [a for a in aparatos if not a.get("ultima_conexion") or a["ultima_conexion"] < hace7]
+    abiertas = [p for p in (peticiones or []) if p.estado != "resuelta"]
+    ficha = {
+        "id": l.id, "sistema": l.sistema, "slug": l.slug, "nombre": l.nombre, "tipo": l.tipo,
+        "estado": l.estado, "dias": l.dias, "prueba_hasta": l.prueba_hasta, "renueva": l.renueva,
+        "renovacion_vencida": bool(l.renovacion_vencida), "motivo_suspension": l.motivo_suspension,
+        "contacto_nombre": l.contacto_nombre, "contacto_email": l.contacto_email, "contacto_telefono": l.contacto_telefono,
+        "direccion_web": l.direccion_web, "alta": l.alta, "ultimo_uso": l.ultimo_uso,
+        "uso": _json(l.uso_json, None), "negocios": _json(l.negocios_json, []),
+        "num_aparatos": len(aparatos), "aparatos_sin_conexion": len(sin_conexion),
+        "ayudas_abiertas": len(abiertas), "ayudas_total": len(peticiones or []),
+        "notas": l.notas, "sincronizado": (l.sincronizado.isoformat() + "Z") if l.sincronizado else None,
+    }
+    if completa:
+        ficha["aparatos"] = aparatos
+        ficha["ayudas"] = [p.to_dict() for p in (peticiones or [])]
+    return ficha
+
+
+def _peticiones_de(local):
+    """Las peticiones de ayuda de ese local: las que llegaron desde su dirección."""
+    if not local.direccion_web:
+        return []
+    return (PeticionAyuda.query.filter(PeticionAyuda.sistema == local.sistema,
+                                       PeticionAyuda.cliente_ref.like(f"{local.direccion_web}#%"))
+            .order_by(PeticionAyuda.fecha.desc()).all())
+
+
+def _avisar_fin_de_prueba(l, sistema):
+    """Te avisa por Telegram una sola vez cuando a una prueba le quedan 3 días o menos."""
+    if l.estado != "prueba" or l.dias is None or l.dias > 3 or not l.prueba_hasta or l.aviso_prueba == l.prueba_hasta:
+        return
+    from app.notificaciones import enviar_telegram
+    cuando = "hoy" if l.dias == 0 else "mañana" if l.dias == 1 else f"en {l.dias} días"
+    texto = (f"⏳ La prueba de {l.nombre} ({NOMBRE_SISTEMA.get(sistema, sistema)}) termina {cuando} ({l.prueba_hasta}).\n"
+             f"👤 {l.contacto_nombre or '—'}\n📞 {l.contacto_telefono or '—'}\n✉️ {l.contacto_email or '—'}\n"
+             "Buen momento para llamarle y pasarle a activo.")
+    try:
+        enviar_telegram(texto)
+    except Exception:  # noqa: BLE001
+        pass
+    l.aviso_prueba = l.prueba_hasta
+
+
+@central_bp.post("/entrada/locales")
+@limiter.limit("20 per minute")
+def recibir_locales():
+    """La plataforma manda la lista completa de sus clientes. Los que ya no vienen pasan a «baja»."""
+    import json
+    from app.models import LocalCliente
+    sistema = _sistema_de_la_peticion()
+    if not sistema:
+        return jsonify({"error": "Clave del sistema no válida"}), 401
+    data = request.get_json(silent=True) or {}
+    locales = data.get("locales")
+    if not isinstance(locales, list) or len(locales) > 2000:
+        return jsonify({"error": "Lista de clientes no válida"}), 400
+    ahora = datetime.utcnow()
+    vistos = set()
+
+    def corto(d, k, n):
+        valor = d.get(k)
+        return (str(valor)[:n] or None) if valor is not None else None
+
+    for d in locales:
+        if not isinstance(d, dict) or not d.get("slug") or not d.get("nombre"):
+            continue
+        slug = str(d["slug"])[:60]
+        vistos.add(slug)
+        l = LocalCliente.query.filter_by(sistema=sistema, slug=slug).first()
+        if not l:
+            l = LocalCliente(sistema=sistema, slug=slug, nombre=str(d["nombre"])[:120])
+            db.session.add(l)
+        l.nombre = str(d["nombre"])[:120]
+        l.tipo = corto(d, "tipo", 20)
+        l.estado = corto(d, "estado", 20)
+        l.dias = d.get("dias") if isinstance(d.get("dias"), int) else None
+        l.prueba_hasta = corto(d, "prueba_hasta", 10)
+        l.renueva = corto(d, "renueva", 10)
+        l.renovacion_vencida = bool(d.get("renovacion_vencida"))
+        l.motivo_suspension = corto(d, "motivo_suspension", 300)
+        l.contacto_nombre = corto(d, "contacto_nombre", 120)
+        l.contacto_email = corto(d, "contacto_email", 160)
+        l.contacto_telefono = corto(d, "contacto_telefono", 40)
+        l.direccion_web = corto(d, "direccion_web", 200)
+        l.alta = corto(d, "alta", 40)
+        l.ultimo_uso = corto(d, "ultimo_uso", 40)
+        l.uso_json = json.dumps(d.get("uso"))[:4000] if isinstance(d.get("uso"), dict) else None
+        l.negocios_json = json.dumps(d.get("negocios")[:20])[:4000] if isinstance(d.get("negocios"), list) else None
+        l.aparatos_json = json.dumps(d.get("aparatos")[:100])[:20000] if isinstance(d.get("aparatos"), list) else None
+        l.sincronizado = ahora
+        _avisar_fin_de_prueba(l, sistema)
+    for l in LocalCliente.query.filter_by(sistema=sistema).all():
+        if l.slug not in vistos and l.estado != "baja":
+            l.estado = "baja"
+            l.dias = None
+    db.session.commit()
+    return jsonify({"ok": True, "recibidos": len(vistos)})
+
+
+@central_bp.get("/clientes")
+def listar_clientes_sistemas():
+    from app.models import LocalCliente
+    locales = LocalCliente.query.order_by(LocalCliente.nombre).all()
+    return jsonify([_ficha(l, _peticiones_de(l)) for l in locales])
+
+
+@central_bp.get("/clientes/<int:local_id>")
+def ficha_cliente_sistema(local_id):
+    from app.models import LocalCliente
+    l = LocalCliente.query.get_or_404(local_id)
+    return jsonify(_ficha(l, _peticiones_de(l), completa=True))
+
+
+@central_bp.patch("/clientes/<int:local_id>")
+def notas_cliente_sistema(local_id):
+    from app.models import LocalCliente
+    l = LocalCliente.query.get_or_404(local_id)
+    data = request.get_json(silent=True) or {}
+    if "notas" in data:
+        l.notas = (data.get("notas") or "").strip()[:4000] or None
+    db.session.commit()
+    return jsonify(_ficha(l, _peticiones_de(l), completa=True))
