@@ -832,3 +832,70 @@ class VisitaMantenimiento(db.Model):
             "firmada": bool(self.firma_archivo),
             "nombre_firmante": self.nombre_firmante,
         }
+
+
+class PeticionAyuda(db.Model):
+    """Firztnet Central: un local que usa uno de tus sistemas (hostelería,
+    peluquerías...) pide ayuda desde su panel con el botón «Pedir ayuda».
+    Llega de servidor a servidor con la clave propia de cada sistema. Tú la
+    ves en «Ayuda a clientes», cambias su estado y le respondes: el local
+    ve tu respuesta en su panel. Solo datos del negocio y de quien pide
+    ayuda, nunca de los clientes de ese negocio."""
+    __tablename__ = "peticiones_ayuda"
+    id = db.Column(db.Integer, primary_key=True)
+    sistema = db.Column(db.String(20), nullable=False)  # 'hosteleria', 'peluquerias'...: sale de la clave, no de lo que mande
+    cliente_ref = db.Column(db.String(200), nullable=False, index=True)  # dirección del local + nº de negocio
+    negocio = db.Column(db.String(120), nullable=False)
+    empresa = db.Column(db.String(160))
+    direccion_web = db.Column(db.String(200))
+    persona = db.Column(db.String(80))
+    rol = db.Column(db.String(30))
+    puesto = db.Column(db.String(120))
+    telefono = db.Column(db.String(30))
+    tipo = db.Column(db.String(20), default="otro")
+    mensaje = db.Column(db.Text, nullable=False)
+    urgente = db.Column(db.Boolean, default=False)
+    pagina = db.Column(db.String(60))
+    navegador = db.Column(db.String(200))
+    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    estado = db.Column(db.String(20), default="nueva")  # 'nueva', 'en_curso', 'resuelta'
+    respuesta = db.Column(db.Text)  # lo que ve el local en su panel
+    respuesta_fecha = db.Column(db.DateTime)
+    notas = db.Column(db.Text)  # solo para ti
+    fecha_resuelta = db.Column(db.DateTime)
+
+    @property
+    def referencia(self):
+        return f"AY-{self.id:05d}"
+
+    def para_local(self):
+        """Lo que ve el propio local en «Tus peticiones» (sin tus notas internas)."""
+        return {
+            "id": self.id,
+            "referencia": self.referencia,
+            "tipo": self.tipo,
+            "mensaje": self.mensaje,
+            "persona": self.persona,
+            "fecha": _iso_utc(self.fecha),
+            "estado": self.estado,
+            "respuesta": self.respuesta,
+            "respuesta_fecha": _iso_utc(self.respuesta_fecha) if self.respuesta_fecha else None,
+        }
+
+    def to_dict(self):
+        return {
+            **self.para_local(),
+            "sistema": self.sistema,
+            "cliente_ref": self.cliente_ref,
+            "negocio": self.negocio,
+            "empresa": self.empresa,
+            "direccion_web": self.direccion_web,
+            "rol": self.rol,
+            "puesto": self.puesto,
+            "telefono": self.telefono,
+            "urgente": bool(self.urgente),
+            "pagina": self.pagina,
+            "navegador": self.navegador,
+            "notas": self.notas,
+            "fecha_resuelta": _iso_utc(self.fecha_resuelta) if self.fecha_resuelta else None,
+        }

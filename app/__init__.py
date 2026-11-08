@@ -151,6 +151,7 @@ def create_app():
     from app.routes.estadisticas import estadisticas_bp
     from app.routes.ventas import ventas_bp
     from app.routes.mantenimientos import mantenimientos_bp
+    from app.routes.central import central_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(clientes_bp, url_prefix="/api/clientes")
@@ -179,6 +180,7 @@ def create_app():
     app.register_blueprint(estadisticas_bp, url_prefix="/api/estadisticas")
     app.register_blueprint(ventas_bp, url_prefix="/api/ventas")
     app.register_blueprint(mantenimientos_bp, url_prefix="/api/mantenimientos")
+    app.register_blueprint(central_bp, url_prefix="/api/central")
 
     @app.get("/api/salud")
     def salud():
