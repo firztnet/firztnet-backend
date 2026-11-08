@@ -899,3 +899,51 @@ class PeticionAyuda(db.Model):
             "notas": self.notas,
             "fecha_resuelta": _iso_utc(self.fecha_resuelta) if self.fecha_resuelta else None,
         }
+
+
+class SistemaVigilado(db.Model):
+    """Firztnet Central — fase 2: cada sistema o web que Reparaciones vigila
+    cada pocos minutos (hostelería, peluquerías, reformas, tus webs...)."""
+    __tablename__ = "sistemas_vigilados"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(80), nullable=False)
+    url = db.Column(db.String(300), nullable=False)
+    tipo = db.Column(db.String(20), default="sistema")  # 'sistema' o 'web'
+    activo = db.Column(db.Boolean, default=True)
+    orden = db.Column(db.Integer, default=0)
+    estado = db.Column(db.String(20), default="desconocido")  # 'ok', 'lento', 'caido', 'desconocido'
+    ultimo_codigo = db.Column(db.Integer)
+    ultimo_ms = db.Column(db.Integer)
+    ms_medio = db.Column(db.Integer)
+    ultimo_error = db.Column(db.String(200))
+    ultima_comprobacion = db.Column(db.DateTime)
+    fallos_seguidos = db.Column(db.Integer, default=0)
+    caido_desde = db.Column(db.DateTime)
+    ssl_caduca = db.Column(db.DateTime)
+    ssl_comprobado = db.Column(db.DateTime)
+    creado = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class IncidenciaSistema(db.Model):
+    """Una caída de un sistema vigilado: desde cuándo hasta cuándo y por qué."""
+    __tablename__ = "incidencias_sistemas"
+    id = db.Column(db.Integer, primary_key=True)
+    sistema_id = db.Column(db.Integer, db.ForeignKey("sistemas_vigilados.id"), nullable=False, index=True)
+    inicio = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    fin = db.Column(db.DateTime)
+    motivo = db.Column(db.String(200))
+
+    sistema = db.relationship("SistemaVigilado")
+
+    def to_dict(self):
+        fin = self.fin or datetime.utcnow()
+        return {
+            "id": self.id,
+            "sistema_id": self.sistema_id,
+            "sistema": self.sistema.nombre if self.sistema else None,
+            "inicio": _iso_utc(self.inicio),
+            "fin": _iso_utc(self.fin) if self.fin else None,
+            "abierta": self.fin is None,
+            "minutos": max(1, round((fin - self.inicio).total_seconds() / 60)),
+            "motivo": self.motivo,
+        }

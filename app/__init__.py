@@ -218,6 +218,7 @@ def create_app():
         return response
 
     _programar_backup_automatico(app)
+    _programar_vigilancia(app)
 
     return app
 
@@ -268,3 +269,32 @@ def _programar_backup_automatico(app):
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(_tarea_backup, "cron", hour=4, minute=0)
     scheduler.start()
+
+
+def _programar_vigilancia(app):
+    """Firztnet Central — fase 2: cada 2 minutos se comprueba que tus sistemas y
+    webs responden (ver app/salud.py). Como el backup, asume un solo proceso de
+    gunicorn. En tu ordenador se puede apagar con DESACTIVAR_VIGILANCIA=true."""
+    import os
+    if os.environ.get("DESACTIVAR_VIGILANCIA") == "true":
+        return
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+    except ImportError:
+        return
+
+    def _ronda():
+        with app.app_context():
+            from app.salud import comprobar_todo
+            try:
+                comprobar_todo()
+            except Exception as e:  # una ronda fallida nunca tumba el servidor
+                db.session.rollback()
+                print("Vigilancia de sistemas:", e)
+
+    from app.salud import INTERVALO_MIN
+    from datetime import datetime, timedelta
+    vigilancia = BackgroundScheduler(daemon=True)
+    vigilancia.add_job(_ronda, "interval", minutes=INTERVALO_MIN, max_instances=1, coalesce=True,
+                       next_run_time=datetime.now() + timedelta(seconds=30))
+    vigilancia.start()

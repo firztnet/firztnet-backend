@@ -155,3 +155,80 @@ def actualizar_peticion(peticion_id):
         p.notas = (data.get("notas") or "").strip()[:2000] or None
     db.session.commit()
     return jsonify(p.to_dict())
+
+
+# ---------- Fase 2: la salud de tus sistemas (con tu login) ----------
+
+@central_bp.get("/salud")
+def estado_sistemas():
+    from app.salud import resumen
+    return jsonify(resumen())
+
+
+@central_bp.post("/salud/comprobar")
+@limiter.limit("10 per minute")
+def comprobar_ahora():
+    from app.salud import comprobar_todo, resumen
+    comprobar_todo()
+    return jsonify(resumen())
+
+
+def _datos_sistema(data, actual=None):
+    from urllib.parse import urlparse
+    nombre = (data.get("nombre") if "nombre" in data else (actual.nombre if actual else "")) or ""
+    url = (data.get("url") if "url" in data else (actual.url if actual else "")) or ""
+    nombre, url = nombre.strip()[:80], url.strip()[:300]
+    partes = urlparse(url)
+    if not nombre:
+        raise ValueError("Escribe un nombre")
+    if partes.scheme not in {"http", "https"} or not partes.hostname:
+        raise ValueError("La dirección debe empezar por https://")
+    tipo = data.get("tipo", actual.tipo if actual else "sistema")
+    return nombre, url, tipo if tipo in {"sistema", "web"} else "sistema"
+
+
+@central_bp.post("/salud/sistemas")
+def anadir_sistema():
+    from app.models import SistemaVigilado
+    from app.salud import asegurar_por_defecto
+    asegurar_por_defecto()
+    try:
+        nombre, url, tipo = _datos_sistema(request.get_json(silent=True) or {})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    ultimo = db.session.query(db.func.max(SistemaVigilado.orden)).scalar() or 0
+    s = SistemaVigilado(nombre=nombre, url=url, tipo=tipo, orden=ultimo + 1)
+    db.session.add(s)
+    db.session.commit()
+    return jsonify({"id": s.id}), 201
+
+
+@central_bp.patch("/salud/sistemas/<int:sistema_id>")
+def editar_sistema(sistema_id):
+    from app.models import SistemaVigilado
+    from app.salud import cerrar_incidencias_abiertas
+    s = SistemaVigilado.query.get_or_404(sistema_id)
+    data = request.get_json(silent=True) or {}
+    try:
+        s.nombre, nueva_url, s.tipo = _datos_sistema(data, s)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if nueva_url != s.url:
+        s.url = nueva_url
+        s.ssl_comprobado = None  # dirección nueva: se mira su candado en la siguiente ronda
+    if "activo" in data:
+        s.activo = bool(data["activo"])
+        if not s.activo:
+            cerrar_incidencias_abiertas(s)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@central_bp.delete("/salud/sistemas/<int:sistema_id>")
+def borrar_sistema(sistema_id):
+    from app.models import IncidenciaSistema, SistemaVigilado
+    s = SistemaVigilado.query.get_or_404(sistema_id)
+    IncidenciaSistema.query.filter_by(sistema_id=s.id).delete()
+    db.session.delete(s)
+    db.session.commit()
+    return jsonify({"ok": True})
