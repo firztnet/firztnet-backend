@@ -609,3 +609,91 @@ def cuadro_de_mando():
         "proximos": proximos[:15],
         "recientes": recientes,
     })
+
+
+# ---------- Informes mensuales de visitas: se preparan solos, salen solo cuando tú los aceptas ----------
+
+def _informe_dict(i):
+    from app.models import LocalCliente
+    l = LocalCliente.query.get(i.local_id)
+    return {
+        "id": i.id, "mes": i.mes, "email": i.email, "asunto": i.asunto, "visitas": i.visitas, "cambio_pct": i.cambio_pct,
+        "estado": i.estado, "error": i.error, "creado": (i.creado.isoformat() + "Z") if i.creado else None,
+        "enviado": (i.enviado.isoformat() + "Z") if i.enviado else None,
+        "cliente": l.nombre if l else "?", "sistema": l.sistema if l else None, "local_id": i.local_id,
+    }
+
+
+@central_bp.get("/informes")
+def listar_informes():
+    import re
+    from app.informes_mensuales import mes_anterior
+    from app.models import InformeMensual
+    mes = request.args.get("mes") or mes_anterior()
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", mes):
+        return jsonify({"error": "Mes no válido"}), 400
+    lista = InformeMensual.query.filter_by(mes=mes).order_by(InformeMensual.visitas.desc()).all()
+    meses = [m for (m,) in db.session.query(InformeMensual.mes).distinct().order_by(InformeMensual.mes.desc()).all()]
+    import os
+    return jsonify({"mes": mes, "meses": meses, "informes": [_informe_dict(i) for i in lista],
+                    "correo_listo": bool(os.environ.get("RESEND_API_KEY")),
+                    "remitente": os.environ.get("EMAIL_REMITENTE", "onboarding@resend.dev")})
+
+
+@central_bp.post("/informes/preparar")
+def preparar_informes():
+    import re
+    from app.informes_mensuales import mes_anterior, preparar
+    mes = (request.get_json(silent=True) or {}).get("mes") or mes_anterior()
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", mes):
+        return jsonify({"error": "Mes no válido"}), 400
+    return jsonify({"preparados": preparar(mes), "mes": mes})
+
+
+@central_bp.get("/informes/<int:informe_id>/vista")
+def ver_informe(informe_id):
+    from app.models import InformeMensual
+    i = InformeMensual.query.get_or_404(informe_id)
+    return jsonify({"html": i.html, "asunto": i.asunto, "email": i.email})
+
+
+@central_bp.patch("/informes/<int:informe_id>")
+def cambiar_informe(informe_id):
+    from app.models import InformeMensual
+    i = InformeMensual.query.get_or_404(informe_id)
+    if i.estado == "enviado":
+        return jsonify({"error": "Este informe ya se envió"}), 400
+    data = request.get_json(silent=True) or {}
+    if "email" in data:
+        email = (data.get("email") or "").strip()[:160]
+        if not email or "@" not in email or " " in email:
+            return jsonify({"error": "Correo no válido"}), 400
+        i.email = email
+    if data.get("estado") in ("preparado", "descartado"):
+        i.estado = data["estado"]
+    db.session.commit()
+    return jsonify(_informe_dict(i))
+
+
+@central_bp.post("/informes/enviar")
+@limiter.limit("10 per minute")
+def enviar_informes():
+    """Envía SOLO los informes que tú aceptas (los ids que mandas)."""
+    from app.informes_mensuales import enviar
+    from app.models import InformeMensual
+    ids = (request.get_json(silent=True) or {}).get("ids") or []
+    if not isinstance(ids, list) or not ids or len(ids) > 100:
+        return jsonify({"error": "Elige qué informes enviar"}), 400
+    enviados, fallos = 0, []
+    for i in InformeMensual.query.filter(InformeMensual.id.in_(ids)).all():
+        if i.estado not in ("preparado", "error"):
+            continue
+        ok, detalle = enviar(i)
+        if ok:
+            i.estado, i.enviado, i.error = "enviado", datetime.utcnow(), None
+            enviados += 1
+        else:
+            i.estado, i.error = "error", detalle
+            fallos.append({"id": i.id, "error": detalle})
+        db.session.commit()
+    return jsonify({"enviados": enviados, "fallos": fallos})

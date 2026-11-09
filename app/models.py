@@ -1008,3 +1008,23 @@ class ResumenDiario(db.Model):
     ingresos_mes_cents = db.Column(db.Integer, default=0)
     clientes_pagando = db.Column(db.Integer, default=0)
     clientes_prueba = db.Column(db.Integer, default=0)
+
+
+class InformeMensual(db.Model):
+    """El informe de visitas de un mes para un cliente. Se prepara solo el día 1; solo se
+    envía cuando tú lo aceptas en «Informes mensuales»."""
+    __tablename__ = "informes_mensuales"
+    id = db.Column(db.Integer, primary_key=True)
+    local_id = db.Column(db.Integer, db.ForeignKey("locales_clientes.id", ondelete="CASCADE"), nullable=False, index=True)
+    mes = db.Column(db.String(7), nullable=False, index=True)  # AAAA-MM
+    email = db.Column(db.String(160))
+    asunto = db.Column(db.String(200))
+    html = db.Column(db.Text)
+    visitas = db.Column(db.Integer, default=0)
+    cambio_pct = db.Column(db.Integer)
+    estado = db.Column(db.String(12), default="preparado")  # preparado, enviado, descartado, error
+    error = db.Column(db.String(300))
+    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    enviado = db.Column(db.DateTime)
+
+    __table_args__ = (db.UniqueConstraint("local_id", "mes", name="uq_informe_local_mes"),)

@@ -297,4 +297,7 @@ def _programar_vigilancia(app):
     vigilancia = BackgroundScheduler(daemon=True)
     vigilancia.add_job(_ronda, "interval", minutes=INTERVALO_MIN, max_instances=1, coalesce=True,
                        next_run_time=datetime.now() + timedelta(seconds=30))
+    # Día 1 a las 8:00 (Madrid): se preparan los informes de visitas del mes anterior (no se envían solos)
+    from app.informes_mensuales import tarea_dia_1
+    vigilancia.add_job(lambda: tarea_dia_1(app), "cron", day=1, hour=8, minute=0, timezone="Europe/Madrid", max_instances=1)
     vigilancia.start()
