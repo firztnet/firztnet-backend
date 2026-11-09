@@ -74,6 +74,9 @@ COLUMNAS_NUEVAS = {
         ("visitas_json", "TEXT"),
         ("reservas_json", "TEXT"),
         ("cuota_manual_cents", "INTEGER"),
+        ("riesgo_pospuesto_hasta", "DATETIME"),
+        ("aviso_cobro", "VARCHAR(10)"),
+        ("ultima_copia", "VARCHAR(40)"),
     ],
     "movimientos_financieros": [
         ("anulado", "BOOLEAN DEFAULT 0"),

@@ -22,7 +22,7 @@ central_bp = Blueprint("central", __name__)
 
 TIPOS = {"impresora", "datafono", "aparato", "acceso", "internet", "otro"}
 ESTADOS = {"nueva", "en_curso", "resuelta"}
-NOMBRE_SISTEMA = {"hosteleria": "Hostelería", "peluquerias": "Peluquerías", "reformas": "Reformas", "logistica": "Logística", "reciclaje": "Reciclaje"}
+NOMBRE_SISTEMA = {"hosteleria": "Hostelería", "peluquerias": "Peluquerías", "reformas": "Reformas", "logistica": "Logística", "reciclaje": "Reciclaje", "reparaciones": "Reparaciones"}
 NOMBRE_TIPO = {"impresora": "No imprime", "datafono": "Datáfono", "aparato": "Aparato o pantalla", "acceso": "No puede entrar", "internet": "Internet", "otro": "Otra cosa"}
 
 
@@ -351,6 +351,8 @@ def recibir_locales():
             l.visitas_json = json.dumps(d["visitas"][:3000])[:200000]
         if isinstance(d.get("reservas_web"), list):
             l.reservas_json = json.dumps(d["reservas_web"][:50])[:5000]
+        if "ultima_copia" in d:
+            l.ultima_copia = corto(d, "ultima_copia", 40)
         l.sincronizado = ahora
         _avisar_fin_de_prueba(l, sistema)
         db.session.flush()
@@ -362,6 +364,9 @@ def recibir_locales():
             l.dias = None
     db.session.flush()
     _foto_del_dia()
+    if "copia_sistema" in data:  # copias de seguridad vigiladas
+        from app.routes.central_extra import guardar_copia_sistema
+        guardar_copia_sistema(sistema, data["copia_sistema"])
     # Vigilancia automática de la web de cada cliente (se añade o se quita sola)
     from app.salud import sincronizar_webs_clientes
     sincronizar_webs_clientes(sistema, LocalCliente.query.filter_by(sistema=sistema).all())
@@ -604,6 +609,8 @@ def cuadro_de_mando():
         "respuesta_media_min": round(sum(minutos) / len(minutos)) if minutos else None,
         "salud": {"total": len(vigilados), "caidos": sum(1 for s in vigilados if s.estado == "caido")},
         "visitas_webs_mes": visitas_mes,
+        "en_riesgo": len(__import__("app.routes.central_extra", fromlist=["clientes_en_riesgo"]).clientes_en_riesgo()),
+        "copias_mal": sum(1 for c in __import__("app.routes.central_extra", fromlist=["estado_copias"]).estado_copias() if c["estado"] in ("atrasada", "sin_copias")),
         "por_sistema": sorted(por_sistema.values(), key=lambda s: -s["ingresos_mes_cents"]),
         "historia": [{"fecha": h.fecha.isoformat(), "ingresos_mes_cents": h.ingresos_mes_cents, "pagando": h.clientes_pagando, "prueba": h.clientes_prueba} for h in historia],
         "proximos": proximos[:15],

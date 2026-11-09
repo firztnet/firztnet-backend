@@ -985,6 +985,9 @@ class LocalCliente(db.Model):
     sincronizado = db.Column(db.DateTime, default=datetime.utcnow)
     aviso_prueba = db.Column(db.String(10))  # fin de prueba del que ya se avisó (para avisar una sola vez)
     cuota_manual_cents = db.Column(db.Integer)  # lo que te paga al mes, si lo pones tú (manda sobre lo que diga su sistema)
+    riesgo_pospuesto_hasta = db.Column(db.DateTime)  # «ya le he llamado»: no sale en «clientes en riesgo» hasta esta fecha
+    aviso_cobro = db.Column(db.String(10))  # renovación de la que ya te avisó el recordatorio de cobro
+    ultima_copia = db.Column(db.String(40))  # última copia de seguridad de sus datos (si su sistema lo dice)
 
     __table_args__ = (db.UniqueConstraint("sistema", "slug", name="uq_local_sistema_slug"),)
 
@@ -1028,3 +1031,27 @@ class InformeMensual(db.Model):
     enviado = db.Column(db.DateTime)
 
     __table_args__ = (db.UniqueConstraint("local_id", "mes", name="uq_informe_local_mes"),)
+
+
+class PlantillaAyuda(db.Model):
+    """Respuestas rápidas para «Ayuda a clientes»: un clic y el texto queda escrito."""
+    __tablename__ = "plantillas_ayuda"
+    id = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(80), nullable=False)
+    texto = db.Column(db.Text, nullable=False)
+    orden = db.Column(db.Integer, default=0)
+
+    def to_dict(self):
+        return {"id": self.id, "titulo": self.titulo, "texto": self.texto, "orden": self.orden}
+
+
+class CopiaSistema(db.Model):
+    """Copias de seguridad vigiladas: cuándo hizo cada sistema su última copia."""
+    __tablename__ = "copias_sistemas"
+    id = db.Column(db.Integer, primary_key=True)
+    sistema = db.Column(db.String(20), nullable=False, unique=True)
+    ultima = db.Column(db.String(40))  # fecha-hora ISO de la última copia, o vacío si el sistema no hace copias
+    sin_copias = db.Column(db.Boolean, default=False)  # el sistema dice que no hace copias automáticas
+    detalle = db.Column(db.String(200))
+    recibido = db.Column(db.DateTime, default=datetime.utcnow)
+    avisado = db.Column(db.String(10))  # día del último aviso por Telegram (uno al día como mucho)

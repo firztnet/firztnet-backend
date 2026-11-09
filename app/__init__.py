@@ -26,6 +26,7 @@ def _origenes_permitidos():
         # Dirección antigua: se sigue aceptando para que las etiquetas QR ya impresas sigan valiendo.
         "https://firztnet-preview.vercel.app",
         "http://localhost:5173",  # Vite en local
+        "https://estado.firztnet.es",  # página pública de estado de tus sistemas
         "http://localhost:3000",
     ]
     extra = os.environ.get("ORIGENES_EXTRA", "")
@@ -152,6 +153,8 @@ def create_app():
     from app.routes.ventas import ventas_bp
     from app.routes.mantenimientos import mantenimientos_bp
     from app.routes.central import central_bp
+    # Ojo: «import app.routes...» aquí taparía la variable «app» (el servidor); por eso se importa así
+    from app.routes import central_extra as _central_extra  # noqa: F401  (riesgo, cobros, copias, estado público, respuestas rápidas)
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(clientes_bp, url_prefix="/api/clientes")
@@ -257,6 +260,11 @@ def _programar_backup_automatico(app):
                     )
                     return
                 ok, detalle = enviar_documento_telegram(nombre_archivo, contenido, caption=f"📦 Backup automático diario — {nombre_archivo}")
+                if ok:
+                    from datetime import datetime as _dt
+                    from app.routes.central_extra import guardar_copia_sistema
+                    guardar_copia_sistema("reparaciones", {"ultima": _dt.utcnow().isoformat() + "Z", "detalle": "Copia diaria enviada por Telegram"})
+                    db.session.commit()
                 if not ok:
                     enviar_telegram(f"❌ El backup automático de hoy no se pudo enviar: {detalle}")
             except Exception as e:
@@ -300,4 +308,17 @@ def _programar_vigilancia(app):
     # Día 1 a las 8:00 (Madrid): se preparan los informes de visitas del mes anterior (no se envían solos)
     from app.informes_mensuales import tarea_dia_1
     vigilancia.add_job(lambda: tarea_dia_1(app), "cron", day=1, hour=8, minute=0, timezone="Europe/Madrid", max_instances=1)
+
+    def _avisos_de_la_manana():
+        with app.app_context():
+            from app.routes.central_extra import aviso_diario_cobros, aviso_diario_copias
+            for tarea in (aviso_diario_cobros, aviso_diario_copias):
+                try:
+                    tarea()
+                except Exception as e:  # un aviso que falla nunca tumba el servidor
+                    db.session.rollback()
+                    print("Aviso de la mañana:", e)
+
+    # Cada mañana a las 9:00 (Madrid): cuotas que se renuevan pronto y copias de seguridad atrasadas
+    vigilancia.add_job(_avisos_de_la_manana, "cron", hour=9, minute=0, timezone="Europe/Madrid", max_instances=1)
     vigilancia.start()
