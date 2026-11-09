@@ -598,6 +598,9 @@ def cuadro_de_mando():
         "clientes": len(vivos),
         "pagando": len(pagando),
         "en_prueba": len(en_prueba),
+        # Lo que entraría al mes si los que están en prueba se quedan (con la cuota que les has puesto)
+        "prueba_potencial_cents": sum(ingreso_mensual(l) for l in en_prueba),
+        "prueba_con_cuota": sum(1 for l in en_prueba if ingreso_mensual(l) > 0),
         "pruebas_7_dias": sum(1 for l in en_prueba if l.dias is not None and l.dias <= 7),
         "sin_cuota": sum(1 for l in pagando if ingreso_mensual(l) == 0),
         "renovaciones_vencidas": sum(1 for l in pagando if l.renovacion_vencida),
