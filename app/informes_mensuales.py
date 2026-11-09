@@ -136,6 +136,8 @@ def enviar(informe):
         "from": f"Firztnet <{remitente}>",
         "to": [informe.email],
         "reply_to": responder,
+        # Copia oculta para ti: así tienes cada informe en tu bandeja como un correo enviado más
+        **({"bcc": [responder]} if responder and responder.lower() != (informe.email or "").lower() else {}),
         "subject": informe.asunto,
         "html": informe.html,
     }
