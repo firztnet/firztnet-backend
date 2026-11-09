@@ -11,7 +11,6 @@ RUTAS_PUBLICAS = ("/api/auth/login", "/api/salud", "/api/estadisticas/visita", "
 PREFIJOS_PUBLICOS = (
     "/api/seguimiento/",  # la URL cambia por reparación (token)
     "/api/central/entrada/",  # tus otros sistemas: entran con su propia clave (CLAVES_SISTEMAS), no con login
-    "/api/central/publico/",  # página pública de estado: solo semáforos, sin datos internos
 )
 
 

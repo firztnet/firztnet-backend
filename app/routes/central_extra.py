@@ -1,5 +1,5 @@
 """Firztnet Central — mejoras:
- · 3 clientes en riesgo   · 4 recordatorio de cobro   · 5 página pública de estado
+ · 3 clientes en riesgo   · 4 recordatorio de cobro
  · 6 copias de seguridad vigiladas   · 7 respuestas rápidas para «Ayuda a clientes»
 Las rutas van en el mismo blueprint que el resto de Central (/api/central/...).
 """
@@ -10,8 +10,7 @@ from datetime import datetime, timedelta
 from flask import jsonify, request
 
 from app import db, limiter
-from app.models import (ConfiguracionNegocio, CopiaSistema, IncidenciaSistema, LocalCliente, PeticionAyuda,
-                        PlantillaAyuda, SistemaVigilado, Venta)
+from app.models import ConfiguracionNegocio, CopiaSistema, LocalCliente, PeticionAyuda, PlantillaAyuda, Venta
 from app.routes.central import NOMBRE_SISTEMA, _json, central_bp, ingreso_mensual
 
 VIVOS = ("prueba", "activo")
@@ -377,30 +376,3 @@ def aviso_diario_copias():
             enviar_telegram("💾 Copias de seguridad atrasadas (más de un día sin copia):\n" + "\n".join(lineas))
         except Exception:  # noqa: BLE001
             pass
-
-
-# ====================== 5 · Página pública de estado ======================
-
-@central_bp.get("/publico/estado")
-@limiter.limit("60 per minute")
-def estado_publico():
-    """Para estado.firztnet.es: solo tus sistemas principales, su semáforo y su disponibilidad.
-    Sin direcciones internas, sin motivos de error y sin las webs de tus clientes."""
-    from app.salud import resumen
-    datos = resumen()
-    sistemas = [s for s in datos["sistemas"] if s.get("origen", "manual") != "auto" and s["activo"]]
-    ids = {s["id"] for s in sistemas}
-    hace90 = datetime.utcnow() - timedelta(days=90)
-    incidencias = [
-        {"sistema": i.sistema.nombre if i.sistema else "", "inicio": i.inicio.isoformat() + "Z",
-         "fin": i.fin.isoformat() + "Z" if i.fin else None, "minutos": max(1, round(((i.fin or datetime.utcnow()) - i.inicio).total_seconds() / 60))}
-        for i in IncidenciaSistema.query.filter(IncidenciaSistema.sistema_id.in_(ids), IncidenciaSistema.inicio >= hace90)
-        .order_by(IncidenciaSistema.inicio.desc()).limit(20).all()
-    ] if ids else []
-    respuesta = jsonify({
-        "actualizado": datetime.utcnow().isoformat() + "Z",
-        "sistemas": [{"nombre": s["nombre"], "tipo": s["tipo"], "estado": s["estado"], "disponibilidad_30d": s["disponibilidad_30d"]} for s in sistemas],
-        "incidencias": incidencias,
-    })
-    respuesta.headers["Cache-Control"] = "public, max-age=60"
-    return respuesta

@@ -26,7 +26,6 @@ def _origenes_permitidos():
         # Dirección antigua: se sigue aceptando para que las etiquetas QR ya impresas sigan valiendo.
         "https://firztnet-preview.vercel.app",
         "http://localhost:5173",  # Vite en local
-        "https://estado.firztnet.es",  # página pública de estado de tus sistemas
         "http://localhost:3000",
     ]
     extra = os.environ.get("ORIGENES_EXTRA", "")
