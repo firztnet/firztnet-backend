@@ -151,9 +151,7 @@ def create_app():
     from app.routes.estadisticas import estadisticas_bp
     from app.routes.ventas import ventas_bp
     from app.routes.mantenimientos import mantenimientos_bp
-    from app.routes.central import central_bp
-    # Ojo: «import app.routes...» aquí taparía la variable «app» (el servidor); por eso se importa así
-    from app.routes import central_extra as _central_extra  # noqa: F401  (riesgo, cobros, copias, estado público, respuestas rápidas)
+    from app.routes.flota import flota_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(clientes_bp, url_prefix="/api/clientes")
@@ -182,7 +180,7 @@ def create_app():
     app.register_blueprint(estadisticas_bp, url_prefix="/api/estadisticas")
     app.register_blueprint(ventas_bp, url_prefix="/api/ventas")
     app.register_blueprint(mantenimientos_bp, url_prefix="/api/mantenimientos")
-    app.register_blueprint(central_bp, url_prefix="/api/central")
+    app.register_blueprint(flota_bp, url_prefix="/api/flota")
 
     @app.get("/api/salud")
     def salud():
@@ -220,7 +218,6 @@ def create_app():
         return response
 
     _programar_backup_automatico(app)
-    _programar_vigilancia(app)
 
     return app
 
@@ -259,11 +256,6 @@ def _programar_backup_automatico(app):
                     )
                     return
                 ok, detalle = enviar_documento_telegram(nombre_archivo, contenido, caption=f"📦 Backup automático diario — {nombre_archivo}")
-                if ok:
-                    from datetime import datetime as _dt
-                    from app.routes.central_extra import guardar_copia_sistema
-                    guardar_copia_sistema("reparaciones", {"ultima": _dt.utcnow().isoformat() + "Z", "detalle": "Copia diaria enviada por Telegram"})
-                    db.session.commit()
                 if not ok:
                     enviar_telegram(f"❌ El backup automático de hoy no se pudo enviar: {detalle}")
             except Exception as e:
@@ -276,48 +268,3 @@ def _programar_backup_automatico(app):
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(_tarea_backup, "cron", hour=4, minute=0)
     scheduler.start()
-
-
-def _programar_vigilancia(app):
-    """Firztnet Central — fase 2: cada 2 minutos se comprueba que tus sistemas y
-    webs responden (ver app/salud.py). Como el backup, asume un solo proceso de
-    gunicorn. En tu ordenador se puede apagar con DESACTIVAR_VIGILANCIA=true."""
-    import os
-    if os.environ.get("DESACTIVAR_VIGILANCIA") == "true":
-        return
-    try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-    except ImportError:
-        return
-
-    def _ronda():
-        with app.app_context():
-            from app.salud import comprobar_todo
-            try:
-                comprobar_todo()
-            except Exception as e:  # una ronda fallida nunca tumba el servidor
-                db.session.rollback()
-                print("Vigilancia de sistemas:", e)
-
-    from app.salud import INTERVALO_MIN
-    from datetime import datetime, timedelta
-    vigilancia = BackgroundScheduler(daemon=True)
-    vigilancia.add_job(_ronda, "interval", minutes=INTERVALO_MIN, max_instances=1, coalesce=True,
-                       next_run_time=datetime.now() + timedelta(seconds=30))
-    # Día 1 a las 8:00 (Madrid): se preparan los informes de visitas del mes anterior (no se envían solos)
-    from app.informes_mensuales import tarea_dia_1
-    vigilancia.add_job(lambda: tarea_dia_1(app), "cron", day=1, hour=8, minute=0, timezone="Europe/Madrid", max_instances=1)
-
-    def _avisos_de_la_manana():
-        with app.app_context():
-            from app.routes.central_extra import aviso_diario_cobros, aviso_diario_copias
-            for tarea in (aviso_diario_cobros, aviso_diario_copias):
-                try:
-                    tarea()
-                except Exception as e:  # un aviso que falla nunca tumba el servidor
-                    db.session.rollback()
-                    print("Aviso de la mañana:", e)
-
-    # Cada mañana a las 9:00 (Madrid): cuotas que se renuevan pronto y copias de seguridad atrasadas
-    vigilancia.add_job(_avisos_de_la_manana, "cron", hour=9, minute=0, timezone="Europe/Madrid", max_instances=1)
-    vigilancia.start()
