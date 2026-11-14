@@ -490,6 +490,40 @@ def editar_tienda(tid):
     return jsonify(_tienda_dict(t))
 
 
+@pos_bp.delete("/tiendas/<int:tid>")
+def borrar_tienda(tid):
+    """Borra la tienda de Central: sus ordenadores, sus copias guardadas aquí y su ficha en «Clientes de sistemas».
+    Los cobros ya apuntados en «Ventas» se quedan (son tu contabilidad). La prueba gratis de cada ordenador
+    sigue apuntada, para que no pueda empezar otra."""
+    import shutil
+    from app.models import EventoCliente, InformeMensual, SistemaVigilado
+    t = PosTienda.query.get_or_404(tid)
+    nombre = t.nombre
+    for carpeta in {os.path.dirname(_carpeta_copias(e)) for e in t.equipos.all()}:  # la carpeta de la tienda entera
+        shutil.rmtree(carpeta, ignore_errors=True)
+    PosPrueba.query.filter_by(tienda_id=t.id).update({"tienda_id": None})
+    l = LocalCliente.query.filter_by(sistema="pos", slug=t.slug).first()
+    if l:
+        EventoCliente.query.filter_by(local_id=l.id).delete()
+        InformeMensual.query.filter_by(local_id=l.id).delete()
+        SistemaVigilado.query.filter_by(local_id=l.id).delete()
+        db.session.delete(l)
+    db.session.delete(t)
+    _foto_del_dia_segura()
+    db.session.commit()
+    return jsonify({"ok": True, "borrada": nombre})
+
+
+def _foto_del_dia_segura():
+    """Recalcula la foto de hoy del cuadro de mando (sin la tienda borrada)."""
+    try:
+        from app.routes.central import _foto_del_dia
+        db.session.flush()
+        _foto_del_dia()
+    except Exception:  # noqa: BLE001  (el cuadro se rehace solo con el siguiente parte)
+        pass
+
+
 @pos_bp.post("/tiendas/<int:tid>/codigo")
 def nuevo_codigo(tid):
     t = PosTienda.query.get_or_404(tid)
