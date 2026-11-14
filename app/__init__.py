@@ -188,7 +188,9 @@ def create_app():
 
     @app.get("/api/salud")
     def salud():
-        return {"estado": "ok", "servicio": "Firztnet - gestión de reparaciones"}
+        # «version»: el cambio de GitHub que está publicado (Railway lo pone él solo); sirve para confirmar cada despliegue
+        return {"estado": "ok", "servicio": "Firztnet - gestión de reparaciones",
+                "version": (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local")[:7]}
 
     @app.errorhandler(413)
     def _archivo_demasiado_grande(e):

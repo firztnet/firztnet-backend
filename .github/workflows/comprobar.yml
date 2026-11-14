@@ -1,0 +1,15 @@
+# En cada subida, comprueba que no falta nada importante (Central, Flota, copias).
+# Si falla, GitHub te manda un correo y marca la subida con una cruz roja.
+name: Comprobar que no falta nada
+on:
+  push:
+  pull_request:
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python comprobar_integridad.py
