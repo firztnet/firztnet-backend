@@ -488,6 +488,8 @@ def informe_visitas(local_id):
 # ---------- Cuadro de mando: cómo va tu negocio ----------
 
 PERIODO_MESES = {"mensual": 1, "trimestral": 3, "semestral": 6, "anual": 12}
+# Sistemas con clientes que informan a Central (Reparaciones es tu taller y el Campus no manda datos de alumnos)
+SISTEMAS_CON_CLIENTES = ("hosteleria", "peluquerias", "reformas", "logistica", "reciclaje", "pos")
 
 
 def ingreso_mensual(l):
@@ -554,7 +556,8 @@ def cuadro_de_mando():
     perdidas = eventos_desde("prueba_vencida", hace90)
     conversion = round(convertidas * 100 / (convertidas + perdidas)) if (convertidas + perdidas) else None
 
-    por_sistema = {}
+    # Todos los sistemas que venden a clientes salen siempre, aunque estén a cero (decisión de Carlos, 14/11/2026)
+    por_sistema = {s: {"sistema": s, "clientes": 0, "pagando": 0, "prueba": 0, "ingresos_mes_cents": 0} for s in SISTEMAS_CON_CLIENTES}
     for l in vivos:
         s = por_sistema.setdefault(l.sistema, {"sistema": l.sistema, "clientes": 0, "pagando": 0, "prueba": 0, "ingresos_mes_cents": 0})
         s["clientes"] += 1
@@ -614,7 +617,7 @@ def cuadro_de_mando():
         "visitas_webs_mes": visitas_mes,
         "en_riesgo": len(__import__("app.routes.central_extra", fromlist=["clientes_en_riesgo"]).clientes_en_riesgo()),
         "copias_mal": sum(1 for c in __import__("app.routes.central_extra", fromlist=["estado_copias"]).estado_copias() if c["estado"] in ("atrasada", "sin_copias")),
-        "por_sistema": sorted(por_sistema.values(), key=lambda s: -s["ingresos_mes_cents"]),
+        "por_sistema": sorted(por_sistema.values(), key=lambda s: (-s["ingresos_mes_cents"], -s["clientes"])),
         "historia": [{"fecha": h.fecha.isoformat(), "ingresos_mes_cents": h.ingresos_mes_cents, "pagando": h.clientes_pagando, "prueba": h.clientes_prueba} for h in historia],
         "proximos": proximos[:15],
         "recientes": recientes,
