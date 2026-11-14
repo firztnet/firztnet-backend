@@ -22,7 +22,7 @@ central_bp = Blueprint("central", __name__)
 
 TIPOS = {"impresora", "datafono", "aparato", "acceso", "internet", "otro"}
 ESTADOS = {"nueva", "en_curso", "resuelta"}
-NOMBRE_SISTEMA = {"hosteleria": "Hostelería", "peluquerias": "Peluquerías", "reformas": "Reformas", "logistica": "Logística", "reciclaje": "Reciclaje", "reparaciones": "Reparaciones"}
+NOMBRE_SISTEMA = {"hosteleria": "Hostelería", "peluquerias": "Peluquerías", "reformas": "Reformas", "logistica": "Logística", "reciclaje": "Reciclaje", "reparaciones": "Reparaciones", "pos": "Punto de venta"}
 NOMBRE_TIPO = {"impresora": "No imprime", "datafono": "Datáfono", "aparato": "Aparato o pantalla", "acceso": "No puede entrar", "internet": "Internet", "otro": "Otra cosa"}
 
 

@@ -152,6 +152,7 @@ def create_app():
     from app.routes.ventas import ventas_bp
     from app.routes.mantenimientos import mantenimientos_bp
     from app.routes.flota import flota_bp
+    from app.routes.pos import pos_bp
     from app.routes.central import central_bp
     # Ojo: «import app.routes...» aquí taparía la variable «app» (el servidor); por eso se importa así
     from app.routes import central_extra as _central_extra  # noqa: F401  (riesgo, cobros, copias, estado público, respuestas rápidas)
@@ -184,6 +185,7 @@ def create_app():
     app.register_blueprint(ventas_bp, url_prefix="/api/ventas")
     app.register_blueprint(mantenimientos_bp, url_prefix="/api/mantenimientos")
     app.register_blueprint(flota_bp, url_prefix="/api/flota")
+    app.register_blueprint(pos_bp, url_prefix="/api/central/pos")
     app.register_blueprint(central_bp, url_prefix="/api/central")
 
     @app.get("/api/salud")

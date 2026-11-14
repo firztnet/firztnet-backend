@@ -1148,3 +1148,61 @@ class RegistroVehiculo(db.Model):
             "en_caja": bool(self.movimiento_id),
             "movimiento_id": self.movimiento_id,
         }
+
+
+# -------------------- PUNTO DE VENTA (Firztnet POS en las tiendas) --------------------
+# Central da de alta las tiendas, firma sus licencias y recibe su parte. El POS sigue
+# funcionando en local sin internet; cuando hay conexión, llama él a Central.
+
+class PosTienda(db.Model):
+    """Una tienda cliente del punto de venta."""
+    __tablename__ = "pos_tiendas"
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(60), unique=True, nullable=False)
+    nombre = db.Column(db.String(120), nullable=False)
+    nif = db.Column(db.String(20))
+    contacto_nombre = db.Column(db.String(120))
+    contacto_telefono = db.Column(db.String(40))
+    contacto_email = db.Column(db.String(160))
+    modo = db.Column(db.String(10), default="cuota")       # cuota | unico
+    cuota_cents = db.Column(db.Integer, default=0)          # cuota mensual (o precio del pago único)
+    pagado_hasta = db.Column(db.Date)                       # cuota: último día pagado
+    prueba_hasta = db.Column(db.Date)                       # prueba gratis: último día
+    dias_gracia = db.Column(db.Integer, default=7)          # días tras el impago antes de bloquear
+    dias_sin_conexion = db.Column(db.Integer, default=15)   # cuota/prueba: días máximo sin hablar con Central
+    max_equipos = db.Column(db.Integer, default=1)          # ordenadores con el POS instalado
+    estado = db.Column(db.String(12), default="activa")     # prueba | activa | suspendida | baja
+    codigo_hash = db.Column(db.String(64), index=True)      # código de activación (solo su huella)
+    codigo_pista = db.Column(db.String(4))                  # sus 4 últimos caracteres, para reconocerlo
+    notas = db.Column(db.Text)
+    creado = db.Column(db.DateTime, default=datetime.utcnow)
+
+    equipos = db.relationship("PosEquipo", backref="tienda", lazy="dynamic", cascade="all, delete-orphan")
+
+
+class PosEquipo(db.Model):
+    """Un ordenador de una tienda con el POS instalado y activado."""
+    __tablename__ = "pos_equipos"
+    id = db.Column(db.Integer, primary_key=True)
+    tienda_id = db.Column(db.Integer, db.ForeignKey("pos_tiendas.id"), nullable=False, index=True)
+    machine_id = db.Column(db.String(20), nullable=False, index=True)
+    nombre = db.Column(db.String(80))
+    token_hash = db.Column(db.String(64), index=True)       # credencial propia del equipo (solo su huella)
+    clave_copias = db.Column(db.String(60))                 # cifra sus copias; solo la tienen el equipo y Central
+    activo = db.Column(db.Boolean, default=True)
+    alta = db.Column(db.DateTime, default=datetime.utcnow)
+    ultimo_parte = db.Column(db.DateTime)
+    version = db.Column(db.String(20))
+    ultima_copia = db.Column(db.String(40))
+    reloj_atrasado = db.Column(db.Boolean, default=False)
+    datos_json = db.Column(db.Text)                         # su último parte (ventas del día, errores...)
+
+
+class PosPrueba(db.Model):
+    """Prueba gratis de 7 días: una por ordenador, apuntada aquí para que no se reinicie borrando nada."""
+    __tablename__ = "pos_pruebas"
+    id = db.Column(db.Integer, primary_key=True)
+    machine_id = db.Column(db.String(20), unique=True, nullable=False)
+    negocio = db.Column(db.String(120))
+    inicio = db.Column(db.DateTime, default=datetime.utcnow)
+    tienda_id = db.Column(db.Integer, db.ForeignKey("pos_tiendas.id"))

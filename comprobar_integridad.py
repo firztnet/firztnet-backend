@@ -28,17 +28,21 @@ OBLIGATORIO = {
         ("class CopiaSistema", "Central: copias de seguridad vigiladas"),
         ("class Vehiculo", "Flota: vehículos"),
         ("class RegistroVehiculo", "Flota: registros de los vehículos"),
+        ("class PosTienda", "Punto de venta: tiendas"),
+        ("class PosEquipo", "Punto de venta: ordenadores de cada tienda"),
     ],
     "app/__init__.py": [
         ("register_blueprint(central_bp", "Central: sus rutas"),
         ("central_extra", "Central: cobros, riesgo, copias y respuestas rápidas"),
         ("_programar_vigilancia(app)", "Central: vigilancia cada 2 minutos y avisos de las 9:00"),
         ("register_blueprint(flota_bp", "Flota: sus rutas"),
+        ("register_blueprint(pos_bp", "Punto de venta: sus rutas"),
         ("_programar_backup_automatico(app)", "Copia de seguridad diaria"),
     ],
     "app/auth.py": [
         ("/api/central/entrada/", "Central: los sistemas entran con su clave, sin login"),
         ("/api/seguimiento/", "Página pública de seguimiento de reparaciones"),
+        ("/api/central/pos/entrada/", "Punto de venta: las tiendas entran con su credencial, sin login"),
     ],
     "app/routes/central.py": [
         ("/entrada/ayuda", "Central: recibir «Pedir ayuda»"),
@@ -47,6 +51,7 @@ OBLIGATORIO = {
     "app/routes/central_extra.py": [("def guardar_copia_sistema", "Central: copias de los sistemas")],
     "app/salud.py": [("def comprobar_todo", "Central: la vigilancia de los sistemas")],
     "app/routes/flota.py": [("flota_bp", "Flota")],
+    "app/routes/pos.py": [("/entrada/parte", "Punto de venta: parte de cada tienda"), ("def licencia_de", "Punto de venta: licencias firmadas")],
 }
 
 

@@ -10,7 +10,8 @@ DURACION_TOKEN_SEGUNDOS = 60 * 60 * 24 * 14  # 14 días
 RUTAS_PUBLICAS = ("/api/auth/login", "/api/salud", "/api/estadisticas/visita", "/api/estadisticas/evento")
 PREFIJOS_PUBLICOS = (
     "/api/seguimiento/",  # la URL cambia por reparación (token)
-    "/api/central/entrada/",  # tus otros sistemas: entran con su propia clave (CLAVES_SISTEMAS), no con login
+    "/api/central/entrada/",
+    "/api/central/pos/entrada/",  # el punto de venta de cada tienda: entra con su credencial de equipo, no con login  # tus otros sistemas: entran con su propia clave (CLAVES_SISTEMAS), no con login
 )
 
 
