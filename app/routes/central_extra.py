@@ -242,13 +242,51 @@ def ver_cobros():
     return jsonify(proximos_cobros())
 
 
+# Dónde está cada sistema, para avisarle de un cobro (se puede cambiar con SISTEMAS_URLS: «hosteleria=https://...;...»)
+URLS_SISTEMAS = {
+    "hosteleria": "https://hosteleria.firztnet.es", "peluquerias": "https://peluquerias.firztnet.es",
+    "logistica": "https://logistica.firztnet.es", "reciclaje": "https://admin.reciclar.firztnet.es",
+}
+RUTA_PAGO = {"logistica": "/central/pago"}  # el resto: /api/central/pago
+
+
+def _url_sistema(sistema):
+    import os
+    for parte in os.environ.get("SISTEMAS_URLS", "").replace(",", ";").split(";"):
+        if "=" in parte and parte.split("=", 1)[0].strip().lower() == sistema:
+            return parte.split("=", 1)[1].strip().rstrip("/")
+    return URLS_SISTEMAS.get(sistema)
+
+
+def avisar_pago_al_sistema(l, cuotas, importe, metodo):
+    """Le dice al sistema del cliente que ha pagado, para que adelante su renovación él solo.
+    Devuelve (True, nueva_fecha) o (False, motivo). Nunca lanza: si falla, el cobro ya está apuntado."""
+    import requests
+    from app.routes.central import _claves
+    url, clave = _url_sistema(l.sistema), _claves().get(l.sistema)
+    if not url or not clave:
+        return False, "Ese sistema todavía no recibe los cobros desde aquí"
+    try:
+        r = requests.post(url + RUTA_PAGO.get(l.sistema, "/api/central/pago"), timeout=12,
+                          json={"slug": l.slug, "cuotas": cuotas, "importe": importe, "metodo": metodo},
+                          headers={"X-Firztnet-Clave": clave, "User-Agent": "FirztnetCentral"})
+        datos = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    except Exception:  # noqa: BLE001
+        return False, "No se pudo contactar con su sistema"
+    if r.status_code != 200 or not datos.get("renueva"):
+        return False, (datos.get("error") or datos.get("detail") or f"Su sistema respondió con un error ({r.status_code})")
+    return True, datos["renueva"]
+
+
 @central_bp.post("/cobros/<int:local_id>/registrar")
 def registrar_cobro(local_id):
-    """Apunta que el cliente te ha pagado: queda como venta cobrada en «Ventas»."""
+    """Apunta que el cliente te ha pagado: queda como venta cobrada en «Ventas» y, si su sistema lo
+    admite, su renovación se adelanta sola las cuotas pagadas (sin entrar en su panel)."""
     l = LocalCliente.query.get_or_404(local_id)
     data = request.get_json(silent=True) or {}
     try:
         importe = round(float(str(data.get("importe", "")).replace(",", ".")), 2)
+        cuotas = max(1, min(24, int(data.get("cuotas") or 1)))
     except ValueError:
         return jsonify({"error": "Importe no válido"}), 400
     if importe <= 0 or importe > 100000:
@@ -256,10 +294,24 @@ def registrar_cobro(local_id):
     metodo = (data.get("metodo") or "").strip()[:40]
     from app.horario import hoy_madrid
     v = Venta(negocio="firztweb", tipo="sistema", cliente_nombre=l.nombre[:150], importe=importe, cobrado=True, fecha=hoy_madrid(),
-              descripcion=f"Cuota de {NOMBRE_SISTEMA.get(l.sistema, l.sistema)} · {l.nombre}" + (f" · {metodo}" if metodo else ""))
+              descripcion=f"Cuota de {NOMBRE_SISTEMA.get(l.sistema, l.sistema)} · {l.nombre}" + (f" · {cuotas} cuota(s)" if cuotas > 1 else "") + (f" · {metodo}" if metodo else ""))
     db.session.add(v)
     db.session.commit()
-    return jsonify({"ok": True, "venta_id": v.id}), 201
+    ok, dato = avisar_pago_al_sistema(l, cuotas, importe, metodo)
+    if ok:
+        # La ficha se pone al día ya (sin esperar a la siguiente lista del sistema)
+        from datetime import date
+        l.renueva = str(dato)[:10]
+        try:
+            l.dias = (date.fromisoformat(l.renueva) - date.today()).days
+        except ValueError:
+            pass
+        l.renovacion_vencida = False
+        if l.estado in ("prueba", "prueba_vencida"):
+            l.estado = "activo"
+        db.session.commit()
+    return jsonify({"ok": True, "venta_id": v.id, "sistema_actualizado": ok,
+                    "renueva": dato if ok else None, "motivo": None if ok else dato}), 201
 
 
 @central_bp.post("/cobros/<int:local_id>/correo")
