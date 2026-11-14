@@ -246,6 +246,7 @@ def ver_cobros():
 URLS_SISTEMAS = {
     "hosteleria": "https://hosteleria.firztnet.es", "peluquerias": "https://peluquerias.firztnet.es",
     "logistica": "https://logistica.firztnet.es", "reciclaje": "https://admin.reciclar.firztnet.es",
+    "reformas": "https://reformas.firztnet.es",
 }
 RUTA_PAGO = {"logistica": "/central/pago"}  # el resto: /api/central/pago
 
