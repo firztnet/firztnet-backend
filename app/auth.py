@@ -8,7 +8,10 @@ from flask import request, jsonify
 DURACION_TOKEN_SEGUNDOS = 60 * 60 * 24 * 14  # 14 días
 
 RUTAS_PUBLICAS = ("/api/auth/login", "/api/salud", "/api/estadisticas/visita", "/api/estadisticas/evento")
-PREFIJOS_PUBLICOS = ("/api/seguimiento/",)  # la URL cambia por reparación (token)
+PREFIJOS_PUBLICOS = (
+    "/api/seguimiento/",  # la URL cambia por reparación (token)
+    "/api/central/entrada/",  # tus otros sistemas: entran con su propia clave (CLAVES_SISTEMAS), no con login
+)
 
 
 def generar_token(username, secret_key):

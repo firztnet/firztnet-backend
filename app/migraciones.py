@@ -63,6 +63,21 @@ COLUMNAS_NUEVAS = {
         ("telefono_bizum", "VARCHAR(20)"),
         ("visitas_vistas_hasta", "DATETIME"),
     ],
+    # Firztnet Central: vigilancia automática de las webs de los clientes
+    "sistemas_vigilados": [
+        ("origen", "VARCHAR(10) DEFAULT 'manual'"),
+        ("local_id", "INTEGER"),
+        ("sistema_cliente", "VARCHAR(20)"),
+    ],
+    # Firztnet Central fase 4: visitas de la web y reservas por internet de cada cliente de tus sistemas
+    "locales_clientes": [
+        ("visitas_json", "TEXT"),
+        ("reservas_json", "TEXT"),
+        ("cuota_manual_cents", "INTEGER"),
+        ("riesgo_pospuesto_hasta", "DATETIME"),
+        ("aviso_cobro", "VARCHAR(10)"),
+        ("ultima_copia", "VARCHAR(40)"),
+    ],
     "movimientos_financieros": [
         ("anulado", "BOOLEAN DEFAULT 0"),
         ("motivo_anulacion", "VARCHAR(200)"),

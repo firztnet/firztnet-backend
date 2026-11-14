@@ -834,6 +834,229 @@ class VisitaMantenimiento(db.Model):
         }
 
 
+class PeticionAyuda(db.Model):
+    """Firztnet Central: un local que usa uno de tus sistemas (hostelería,
+    peluquerías...) pide ayuda desde su panel con el botón «Pedir ayuda».
+    Llega de servidor a servidor con la clave propia de cada sistema. Tú la
+    ves en «Ayuda a clientes», cambias su estado y le respondes: el local
+    ve tu respuesta en su panel. Solo datos del negocio y de quien pide
+    ayuda, nunca de los clientes de ese negocio."""
+    __tablename__ = "peticiones_ayuda"
+    id = db.Column(db.Integer, primary_key=True)
+    sistema = db.Column(db.String(20), nullable=False)  # 'hosteleria', 'peluquerias'...: sale de la clave, no de lo que mande
+    cliente_ref = db.Column(db.String(200), nullable=False, index=True)  # dirección del local + nº de negocio
+    negocio = db.Column(db.String(120), nullable=False)
+    empresa = db.Column(db.String(160))
+    direccion_web = db.Column(db.String(200))
+    persona = db.Column(db.String(80))
+    rol = db.Column(db.String(30))
+    puesto = db.Column(db.String(120))
+    telefono = db.Column(db.String(30))
+    tipo = db.Column(db.String(20), default="otro")
+    mensaje = db.Column(db.Text, nullable=False)
+    urgente = db.Column(db.Boolean, default=False)
+    pagina = db.Column(db.String(60))
+    navegador = db.Column(db.String(200))
+    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    estado = db.Column(db.String(20), default="nueva")  # 'nueva', 'en_curso', 'resuelta'
+    respuesta = db.Column(db.Text)  # lo que ve el local en su panel
+    respuesta_fecha = db.Column(db.DateTime)
+    notas = db.Column(db.Text)  # solo para ti
+    fecha_resuelta = db.Column(db.DateTime)
+
+    @property
+    def referencia(self):
+        return f"AY-{self.id:05d}"
+
+    def para_local(self):
+        """Lo que ve el propio local en «Tus peticiones» (sin tus notas internas)."""
+        return {
+            "id": self.id,
+            "referencia": self.referencia,
+            "tipo": self.tipo,
+            "mensaje": self.mensaje,
+            "persona": self.persona,
+            "fecha": _iso_utc(self.fecha),
+            "estado": self.estado,
+            "respuesta": self.respuesta,
+            "respuesta_fecha": _iso_utc(self.respuesta_fecha) if self.respuesta_fecha else None,
+        }
+
+    def to_dict(self):
+        return {
+            **self.para_local(),
+            "sistema": self.sistema,
+            "cliente_ref": self.cliente_ref,
+            "negocio": self.negocio,
+            "empresa": self.empresa,
+            "direccion_web": self.direccion_web,
+            "rol": self.rol,
+            "puesto": self.puesto,
+            "telefono": self.telefono,
+            "urgente": bool(self.urgente),
+            "pagina": self.pagina,
+            "navegador": self.navegador,
+            "notas": self.notas,
+            "fecha_resuelta": _iso_utc(self.fecha_resuelta) if self.fecha_resuelta else None,
+        }
+
+
+class SistemaVigilado(db.Model):
+    """Firztnet Central — fase 2: cada sistema o web que Reparaciones vigila
+    cada pocos minutos (hostelería, peluquerías, reformas, tus webs...)."""
+    __tablename__ = "sistemas_vigilados"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(80), nullable=False)
+    url = db.Column(db.String(300), nullable=False)
+    tipo = db.Column(db.String(20), default="sistema")  # 'sistema' o 'web'
+    activo = db.Column(db.Boolean, default=True)
+    orden = db.Column(db.Integer, default=0)
+    estado = db.Column(db.String(20), default="desconocido")  # 'ok', 'lento', 'caido', 'desconocido'
+    ultimo_codigo = db.Column(db.Integer)
+    ultimo_ms = db.Column(db.Integer)
+    ms_medio = db.Column(db.Integer)
+    ultimo_error = db.Column(db.String(200))
+    ultima_comprobacion = db.Column(db.DateTime)
+    fallos_seguidos = db.Column(db.Integer, default=0)
+    caido_desde = db.Column(db.DateTime)
+    ssl_caduca = db.Column(db.DateTime)
+    ssl_comprobado = db.Column(db.DateTime)
+    # Webs de clientes que se vigilan solas (se añaden y quitan con la lista de clientes de cada plataforma)
+    origen = db.Column(db.String(10), default="manual")  # 'manual' o 'auto'
+    local_id = db.Column(db.Integer)  # LocalCliente al que pertenece (solo las automáticas)
+    sistema_cliente = db.Column(db.String(20))  # de qué plataforma es ese cliente (reciclaje, hosteleria...)
+    creado = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class IncidenciaSistema(db.Model):
+    """Una caída de un sistema vigilado: desde cuándo hasta cuándo y por qué."""
+    __tablename__ = "incidencias_sistemas"
+    id = db.Column(db.Integer, primary_key=True)
+    sistema_id = db.Column(db.Integer, db.ForeignKey("sistemas_vigilados.id"), nullable=False, index=True)
+    inicio = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    fin = db.Column(db.DateTime)
+    motivo = db.Column(db.String(200))
+
+    sistema = db.relationship("SistemaVigilado")
+
+    def to_dict(self):
+        fin = self.fin or datetime.utcnow()
+        return {
+            "id": self.id,
+            "sistema_id": self.sistema_id,
+            "sistema": self.sistema.nombre if self.sistema else None,
+            "inicio": _iso_utc(self.inicio),
+            "fin": _iso_utc(self.fin) if self.fin else None,
+            "abierta": self.fin is None,
+            "minutos": max(1, round((fin - self.inicio).total_seconds() / 60)),
+            "motivo": self.motivo,
+        }
+
+
+class LocalCliente(db.Model):
+    """Firztnet Central — fase 3: cada cliente de tus plataformas (un bar, una
+    peluquería...), tal como lo manda su plataforma cada 10 minutos. Es la
+    «ficha única»: estado, prueba o renovación, contacto, uso, aparatos.
+    Las notas son tuyas y no las toca la sincronización."""
+    __tablename__ = "locales_clientes"
+    id = db.Column(db.Integer, primary_key=True)
+    sistema = db.Column(db.String(20), nullable=False, index=True)
+    slug = db.Column(db.String(60), nullable=False)
+    nombre = db.Column(db.String(120), nullable=False)
+    tipo = db.Column(db.String(20))
+    estado = db.Column(db.String(20))  # 'prueba', 'activo', 'suspendido', 'prueba_vencida', 'baja'
+    dias = db.Column(db.Integer)  # días que quedan de prueba (o hasta renovar)
+    prueba_hasta = db.Column(db.String(10))
+    renueva = db.Column(db.String(10))
+    renovacion_vencida = db.Column(db.Boolean, default=False)
+    motivo_suspension = db.Column(db.String(300))
+    contacto_nombre = db.Column(db.String(120))
+    contacto_email = db.Column(db.String(160))
+    contacto_telefono = db.Column(db.String(40))
+    direccion_web = db.Column(db.String(200))
+    alta = db.Column(db.String(40))
+    ultimo_uso = db.Column(db.String(40))
+    uso_json = db.Column(db.Text)
+    negocios_json = db.Column(db.Text)
+    aparatos_json = db.Column(db.Text)
+    visitas_json = db.Column(db.Text)  # fase 4: visitas de su web por día, aparato y origen
+    reservas_json = db.Column(db.Text)  # fase 4: reservas por internet por mes
+    notas = db.Column(db.Text)
+    sincronizado = db.Column(db.DateTime, default=datetime.utcnow)
+    aviso_prueba = db.Column(db.String(10))  # fin de prueba del que ya se avisó (para avisar una sola vez)
+    cuota_manual_cents = db.Column(db.Integer)  # lo que te paga al mes, si lo pones tú (manda sobre lo que diga su sistema)
+    riesgo_pospuesto_hasta = db.Column(db.DateTime)  # «ya le he llamado»: no sale en «clientes en riesgo» hasta esta fecha
+    aviso_cobro = db.Column(db.String(10))  # renovación de la que ya te avisó el recordatorio de cobro
+    ultima_copia = db.Column(db.String(40))  # última copia de seguridad de sus datos (si su sistema lo dice)
+
+    __table_args__ = (db.UniqueConstraint("sistema", "slug", name="uq_local_sistema_slug"),)
+
+
+class EventoCliente(db.Model):
+    """Cuadro de mando: cada cambio de estado de un cliente de tus sistemas (alta, pasa a
+    activo, termina la prueba, se suspende, se da de baja...), para contar conversiones y bajas."""
+    __tablename__ = "eventos_clientes"
+    id = db.Column(db.Integer, primary_key=True)
+    local_id = db.Column(db.Integer, db.ForeignKey("locales_clientes.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo = db.Column(db.String(20), nullable=False)  # alta, activo, prueba, prueba_vencida, suspendido, baja
+    antes = db.Column(db.String(20))
+    fecha = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+class ResumenDiario(db.Model):
+    """Cuadro de mando: una foto al día de tus ingresos fijos y tus clientes, para ver cómo evolucionan."""
+    __tablename__ = "resumen_diario"
+    id = db.Column(db.Integer, primary_key=True)
+    fecha = db.Column(db.Date, nullable=False, unique=True)
+    ingresos_mes_cents = db.Column(db.Integer, default=0)
+    clientes_pagando = db.Column(db.Integer, default=0)
+    clientes_prueba = db.Column(db.Integer, default=0)
+
+
+class InformeMensual(db.Model):
+    """El informe de visitas de un mes para un cliente. Se prepara solo el día 1; solo se
+    envía cuando tú lo aceptas en «Informes mensuales»."""
+    __tablename__ = "informes_mensuales"
+    id = db.Column(db.Integer, primary_key=True)
+    local_id = db.Column(db.Integer, db.ForeignKey("locales_clientes.id", ondelete="CASCADE"), nullable=False, index=True)
+    mes = db.Column(db.String(7), nullable=False, index=True)  # AAAA-MM
+    email = db.Column(db.String(160))
+    asunto = db.Column(db.String(200))
+    html = db.Column(db.Text)
+    visitas = db.Column(db.Integer, default=0)
+    cambio_pct = db.Column(db.Integer)
+    estado = db.Column(db.String(12), default="preparado")  # preparado, enviado, descartado, error
+    error = db.Column(db.String(300))
+    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    enviado = db.Column(db.DateTime)
+
+    __table_args__ = (db.UniqueConstraint("local_id", "mes", name="uq_informe_local_mes"),)
+
+
+class PlantillaAyuda(db.Model):
+    """Respuestas rápidas para «Ayuda a clientes»: un clic y el texto queda escrito."""
+    __tablename__ = "plantillas_ayuda"
+    id = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(80), nullable=False)
+    texto = db.Column(db.Text, nullable=False)
+    orden = db.Column(db.Integer, default=0)
+
+    def to_dict(self):
+        return {"id": self.id, "titulo": self.titulo, "texto": self.texto, "orden": self.orden}
+
+
+class CopiaSistema(db.Model):
+    """Copias de seguridad vigiladas: cuándo hizo cada sistema su última copia."""
+    __tablename__ = "copias_sistemas"
+    id = db.Column(db.Integer, primary_key=True)
+    sistema = db.Column(db.String(20), nullable=False, unique=True)
+    ultima = db.Column(db.String(40))  # fecha-hora ISO de la última copia, o vacío si el sistema no hace copias
+    sin_copias = db.Column(db.Boolean, default=False)  # el sistema dice que no hace copias automáticas
+    detalle = db.Column(db.String(200))
+    recibido = db.Column(db.DateTime, default=datetime.utcnow)
+    avisado = db.Column(db.String(10))  # día del último aviso por Telegram (uno al día como mucho)
+
+
 # -------------------- FLOTA (vehículos de la empresa) --------------------
 
 TIPOS_REGISTRO_VEHICULO = ("itv", "mantenimiento", "reparacion", "combustible", "seguro", "impuesto", "otro")
