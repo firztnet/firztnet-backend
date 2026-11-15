@@ -1205,6 +1205,26 @@ class PosEquipo(db.Model):
     ultima_copia = db.Column(db.String(40))
     reloj_atrasado = db.Column(db.Boolean, default=False)
     datos_json = db.Column(db.Text)                         # su último parte (ventas del día, errores...)
+    actualizacion_estado = db.Column(db.String(20))         # descargada / instalada / fallida (de la última versión ofrecida)
+    actualizacion_version = db.Column(db.String(20))
+    actualizacion_detalle = db.Column(db.String(300))
+    actualizacion_fecha = db.Column(db.DateTime)
+
+
+class PosVersion(db.Model):
+    """Actualización del POS: el paquete que subes desde el panel. Central lo firma y lo ofrece a las tiendas."""
+    __tablename__ = "pos_versiones"
+    id = db.Column(db.Integer, primary_key=True)
+    version = db.Column(db.String(20), unique=True, nullable=False)
+    notas = db.Column(db.Text)                              # novedades (una por línea): las ve la tienda
+    archivo = db.Column(db.String(200), nullable=False)
+    sha256 = db.Column(db.String(64), nullable=False)
+    tamano = db.Column(db.Integer, nullable=False)
+    firma = db.Column(db.Text, nullable=False)              # firmado con POS_CLAVE_PRIVADA (el POS lo comprueba)
+    estado = db.Column(db.String(20), default="borrador")   # borrador / publicada / retirada
+    destino = db.Column(db.String(20), default="prueba")    # prueba (solo las tiendas elegidas) / todas
+    tiendas_json = db.Column(db.Text, default="[]")
+    subida = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class PosPrueba(db.Model):

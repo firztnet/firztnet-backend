@@ -31,6 +31,7 @@ OBLIGATORIO = {
         ("class PosTienda", "Punto de venta: tiendas"),
         ("class PosEquipo", "Punto de venta: ordenadores de cada tienda"),
         ("class ContactoSistema", "Central: alarma de silencio (último envío de cada sistema)"),
+        ("class PosVersion", "Punto de venta: actualizaciones a distancia"),
     ],
     "app/__init__.py": [
         ("register_blueprint(central_bp", "Central: sus rutas"),

@@ -83,6 +83,12 @@ COLUMNAS_NUEVAS = {
         ("motivo_anulacion", "VARCHAR(200)"),
         ("anula_a_id", "INTEGER"),
     ],
+    "pos_equipos": [
+        ("actualizacion_estado", "VARCHAR(20)"),
+        ("actualizacion_version", "VARCHAR(20)"),
+        ("actualizacion_detalle", "VARCHAR(300)"),
+        ("actualizacion_fecha", "DATETIME"),
+    ],
     "reparaciones": [
         ("contrato_id", "INTEGER"),
         ("periodo", "VARCHAR(7)"), ("cuota_mes", "NUMERIC(10,2)"),

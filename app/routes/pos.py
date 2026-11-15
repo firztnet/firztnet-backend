@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, jsonify, request, send_file
 
 from app import db, limiter
-from app.models import LocalCliente, PosEquipo, PosPrueba, PosTienda, Venta
+from app.models import LocalCliente, PosEquipo, PosPrueba, PosTienda, PosVersion, Venta
 
 pos_bp = Blueprint("pos", __name__)
 
@@ -335,6 +335,9 @@ def parte():
     _copia_del_sistema()
     db.session.commit()
     respuesta = _respuesta_equipo(t, e)
+    oferta = _actualizacion_para(e)
+    if oferta:
+        respuesta["actualizacion"] = oferta
     if t.estado == "activa" and t.modo == "cuota" and t.pagado_hasta and t.pagado_hasta < date.today():
         limite = t.pagado_hasta + timedelta(days=t.dias_gracia or 0)
         respuesta["aviso"] = f"Tu cuota está pendiente. El programa seguirá funcionando hasta el {limite.strftime('%d/%m/%Y')}."
@@ -366,6 +369,186 @@ def recibir_copia():
     _copia_del_sistema()
     db.session.commit()
     return jsonify({"ok": True, "copia": nombre})
+
+
+# ---------- Actualizaciones a distancia ----------
+# Subes el paquete (el .zip de compilar.ps1) desde el panel; Central lo firma con la misma clave que las
+# licencias y lo ofrece en la respuesta al parte. El POS lo descarga, comprueba la firma y avisa a la tienda.
+
+MAX_PAQUETE = 60 * 1024 * 1024
+VERSION_VALIDA = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,3}")
+
+
+def _num_version(texto):
+    try:
+        return tuple(int(x) for x in str(texto or "0").split("."))
+    except ValueError:
+        return (0,)
+
+
+def _carpeta_versiones():
+    raiz = os.environ.get("POS_COPIAS_DIR") or os.path.join(
+        os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "pos-copias")
+    return os.path.join(raiz, "_versiones")
+
+
+def _tiendas_de(v):
+    try:
+        return [int(x) for x in json.loads(v.tiendas_json or "[]")]
+    except (ValueError, TypeError):
+        return []
+
+
+def _actualizacion_para(e):
+    """La versión más nueva publicada para la tienda de este ordenador, si es más nueva que la suya."""
+    mejor = None
+    for v in PosVersion.query.filter_by(estado="publicada").all():
+        if v.destino != "todas" and e.tienda_id not in _tiendas_de(v):
+            continue
+        if _num_version(v.version) <= _num_version(e.version):
+            continue
+        if not mejor or _num_version(v.version) > _num_version(mejor.version):
+            mejor = v
+    if not mejor:
+        return None
+    return {"version": mejor.version, "notas": mejor.notas or "", "tamano": mejor.tamano, "sha256": mejor.sha256,
+            "firma": mejor.firma, "id": mejor.id}
+
+
+@pos_bp.post("/entrada/descargar/<int:vid>")
+@limiter.limit("6 per hour")
+def descargar_actualizacion(vid):
+    """El POS descarga el paquete (solo un equipo activo y solo una versión publicada para él)."""
+    e = _del_token()
+    if not e or not e.activo:
+        return jsonify({"error": "Equipo no reconocido"}), 401
+    oferta = _actualizacion_para(e)
+    if not oferta or oferta["id"] != vid:
+        return jsonify({"error": "Esa actualización no está disponible para este ordenador"}), 404
+    v = db.session.get(PosVersion, vid)
+    ruta = os.path.join(_carpeta_versiones(), v.archivo)
+    if not os.path.isfile(ruta):
+        return jsonify({"error": "El paquete ya no está en Central"}), 404
+    return send_file(ruta, as_attachment=True, download_name=v.archivo, mimetype="application/zip")
+
+
+@pos_bp.post("/entrada/actualizacion")
+@limiter.limit("30 per hour")
+def informe_actualizacion():
+    """El POS cuenta cómo fue: descargada, instalada o fallida (y volvió a la versión anterior)."""
+    e = _del_token()
+    if not e:
+        return jsonify({"error": "Equipo no reconocido"}), 401
+    data = request.get_json(silent=True) or {}
+    estado = str(data.get("estado") or "")
+    if estado not in ("descargada", "instalada", "fallida"):
+        return jsonify({"error": "Estado no válido"}), 400
+    e.actualizacion_estado = estado
+    e.actualizacion_version = _texto(data, "version", 20)
+    e.actualizacion_detalle = _texto(data, "detalle", 300)
+    e.actualizacion_fecha = datetime.utcnow()
+    if estado == "instalada" and e.actualizacion_version:
+        e.version = e.actualizacion_version
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+def _version_dict(v):
+    equipos = PosEquipo.query.filter_by(activo=True).all()
+    destinatarios = [e for e in equipos if v.destino == "todas" or e.tienda_id in _tiendas_de(v)]
+    ya = [e for e in destinatarios if _num_version(e.version) >= _num_version(v.version)]
+    return {"id": v.id, "version": v.version, "notas": v.notas or "", "tamano": v.tamano, "estado": v.estado,
+            "destino": v.destino, "tiendas": _tiendas_de(v), "subida": v.subida.isoformat() + "Z" if v.subida else None,
+            "equipos_destino": len(destinatarios), "equipos_al_dia": len(ya),
+            "fallidas": sum(1 for e in destinatarios if e.actualizacion_estado == "fallida" and e.actualizacion_version == v.version)}
+
+
+@pos_bp.get("/versiones")
+def listar_versiones():
+    versiones = sorted(PosVersion.query.all(), key=lambda v: _num_version(v.version), reverse=True)
+    return jsonify({"versiones": [_version_dict(v) for v in versiones], "firma_lista": _clave_privada() is not None})
+
+
+@pos_bp.post("/versiones")
+def subir_version():
+    """Sube el paquete de compilar.ps1. Se comprueba que es un POS compilado sin datos dentro y se firma."""
+    import zipfile
+    if not _clave_privada():
+        return jsonify({"error": "Falta POS_CLAVE_PRIVADA en Railway: sin ella no se pueden firmar las actualizaciones"}), 503
+    f = request.files.get("paquete")
+    version = (request.form.get("version") or "").strip()
+    notas = (request.form.get("notas") or "").strip()[:3000]
+    if not f:
+        return jsonify({"error": "Elige el archivo .zip que hace compilar.ps1"}), 400
+    if not VERSION_VALIDA.fullmatch(version):
+        return jsonify({"error": "Escribe la versión con tres números, por ejemplo 2.1.0"}), 400
+    if PosVersion.query.filter_by(version=version).first():
+        return jsonify({"error": f"Ya hay una actualización con la versión {version}"}), 409
+    os.makedirs(_carpeta_versiones(), exist_ok=True)
+    nombre = f"FirztnetPOS-{version}.zip"
+    ruta = os.path.join(_carpeta_versiones(), nombre)
+    f.save(ruta)
+    try:
+        tamano = os.path.getsize(ruta)
+        if tamano > MAX_PAQUETE:
+            raise ValueError("El paquete es demasiado grande")
+        with zipfile.ZipFile(ruta) as z:
+            nombres = z.namelist()
+            if z.testzip() is not None:
+                raise ValueError("El .zip está dañado")
+        if not any(n.replace("\\", "/").endswith("FirztnetPOS/FirztnetPOS.exe") for n in nombres):
+            raise ValueError("Ese .zip no es un paquete de Firztnet POS (no lleva FirztnetPOS/FirztnetPOS.exe)")
+        prohibidos = [n for n in nombres if re.search(r"\.db$|generar_clave|\.clave_sesion", n)]
+        if prohibidos:
+            raise ValueError(f"El paquete lleva archivos que no debe: {', '.join(prohibidos[:3])}")
+    except (zipfile.BadZipFile, ValueError) as err:
+        os.remove(ruta)
+        return jsonify({"error": str(err) if isinstance(err, ValueError) else "Ese archivo no es un .zip válido"}), 400
+    h = hashlib.sha256()
+    with open(ruta, "rb") as fh:
+        for trozo in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(trozo)
+    sha = h.hexdigest()
+    firma = _firmar({"tipo": "actualizacion", "version": version, "sha256": sha, "tamano": tamano})
+    v = PosVersion(version=version, notas=notas, archivo=nombre, sha256=sha, tamano=tamano, firma=firma)
+    db.session.add(v)
+    db.session.commit()
+    return jsonify(_version_dict(v)), 201
+
+
+@pos_bp.route("/versiones/<int:vid>", methods=["PUT", "PATCH"])
+def editar_version(vid):
+    v = db.session.get(PosVersion, vid)
+    if not v:
+        return jsonify({"error": "No existe"}), 404
+    data = request.get_json(silent=True) or {}
+    if "notas" in data:
+        v.notas = str(data.get("notas") or "").strip()[:3000]
+    if data.get("destino") in ("prueba", "todas"):
+        v.destino = data["destino"]
+    if isinstance(data.get("tiendas"), list):
+        validas = {t.id for t in PosTienda.query.all()}
+        v.tiendas_json = json.dumps([int(x) for x in data["tiendas"] if str(x).isdigit() and int(x) in validas])
+    if data.get("estado") in ("borrador", "publicada", "retirada"):
+        if data["estado"] == "publicada" and v.destino == "prueba" and not _tiendas_de(v):
+            return jsonify({"error": "Elige al menos una tienda de prueba, o publícala para todas"}), 400
+        v.estado = data["estado"]
+    db.session.commit()
+    return jsonify(_version_dict(v))
+
+
+@pos_bp.delete("/versiones/<int:vid>")
+def borrar_version(vid):
+    v = db.session.get(PosVersion, vid)
+    if not v:
+        return jsonify({"error": "No existe"}), 404
+    try:
+        os.remove(os.path.join(_carpeta_versiones(), v.archivo))
+    except OSError:
+        pass
+    db.session.delete(v)
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 def _carpeta_copias(e):
@@ -400,6 +583,8 @@ def _tienda_dict(t, completa=False):
             "ultimo_parte": e.ultimo_parte.isoformat() + "Z" if e.ultimo_parte else None,
             "sin_noticias_horas": round(horas, 1) if horas is not None else None,
             "ultima_copia": e.ultima_copia, "reloj_atrasado": e.reloj_atrasado, "datos": datos,
+            "actualizacion": {"estado": e.actualizacion_estado, "version": e.actualizacion_version, "detalle": e.actualizacion_detalle,
+                              "fecha": e.actualizacion_fecha.isoformat() + "Z" if e.actualizacion_fecha else None} if e.actualizacion_estado else None,
             "copias": sorted(os.listdir(_carpeta_copias(e)), reverse=True)[:COPIAS_A_GUARDAR] if completa and os.path.isdir(_carpeta_copias(e)) else [],
         })
     return d
