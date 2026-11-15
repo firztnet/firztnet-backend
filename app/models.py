@@ -928,6 +928,15 @@ class SistemaVigilado(db.Model):
     creado = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class ContactoSistema(db.Model):
+    """Alarma de silencio: cuándo envió cada sistema su lista a Central por última vez.
+    Los sistemas envían cada 10 minutos; si uno pasa demasiado tiempo callado, se avisa."""
+    __tablename__ = "contacto_sistema"
+    sistema = db.Column(db.String(20), primary_key=True)
+    ultima_vez = db.Column(db.DateTime, nullable=False)
+    callado_desde = db.Column(db.DateTime)  # se rellena cuando salta la alarma (para avisar una sola vez)
+
+
 class IncidenciaSistema(db.Model):
     """Una caída de un sistema vigilado: desde cuándo hasta cuándo y por qué."""
     __tablename__ = "incidencias_sistemas"

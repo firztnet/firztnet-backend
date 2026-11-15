@@ -1,0 +1,50 @@
+# Vigilante externo de Reparaciones (Firztnet Central).
+# Central vigila a todos tus sistemas, pero si se cae Reparaciones (donde vive Central) nadie te avisaría.
+# Esta tarea corre en GitHub, fuera de Railway: cada 10 minutos comprueba el servidor (con su base de datos)
+# y el panel. Si algo falla dos veces seguidas:
+#   · te manda un Telegram (si has puesto los secretos TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en GitHub), y
+#   · la tarea sale en rojo y GitHub te manda un correo.
+# También se puede lanzar a mano desde la pestaña «Actions» (botón «Run workflow»).
+name: Vigilante externo
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: vigilante-externo
+  cancel-in-progress: false
+jobs:
+  vigilar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comprobar Reparaciones y su panel
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          comprobar() {
+            # Servidor: tiene que responder 200 y decir que la base de datos está bien
+            S=$(curl -s -m 20 -w '\n%{http_code}' https://firztnet-backend-production.up.railway.app/api/salud || true)
+            CODIGO=$(echo "$S" | tail -n1)
+            if [ "$CODIGO" != "200" ] || ! echo "$S" | grep -q '"base_de_datos": *"ok"'; then
+              echo "el servidor de Reparaciones no responde bien (código $CODIGO)"; return 1
+            fi
+            # Panel: la página tiene que cargar
+            P=$(curl -s -o /dev/null -m 20 -w '%{http_code}' https://reparaciones.firztnet.es/ || true)
+            if [ "$P" != "200" ]; then
+              echo "el panel reparaciones.firztnet.es no carga (código $P)"; return 1
+            fi
+            return 0
+          }
+          if MOTIVO=$(comprobar); then echo "Todo en marcha"; exit 0; fi
+          echo "Primer intento fallido: $MOTIVO. Se repite en 60 segundos…"
+          sleep 60
+          if MOTIVO=$(comprobar); then echo "Recuperado al segundo intento"; exit 0; fi
+          echo "FALLO: $MOTIVO"
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -s -m 15 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=🚨 Vigilante externo: ${MOTIVO}. Central no puede avisarte de nada mientras siga así. Revisa Railway." > /dev/null || true
+          fi
+          exit 1

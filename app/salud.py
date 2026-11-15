@@ -123,6 +123,70 @@ def comprobar_todo():
     """Una ronda de vigilancia. La llama el reloj cada 2 minutos y el botón «Comprobar ahora»."""
     with _CERROJO:
         _ronda()
+        try:
+            comprobar_silencios()
+        except Exception as e:  # la alarma de silencio nunca tumba la ronda
+            db.session.rollback()
+            print("Alarma de silencio:", e)
+
+
+# ---------- Alarma de silencio: sistemas que dejan de enviar datos a Central ----------
+SILENCIO_MIN = 40  # envían cada 10 minutos: 40 sin nada = algo pasa (caído, sin clave, tarea parada…)
+
+
+def anotar_contacto(sistema):
+    """Lo llama la entrada de datos de cada sistema. Si estaba callado, avisa de que ha vuelto."""
+    from app.models import ContactoSistema
+    ahora = datetime.utcnow()
+    c = db.session.get(ContactoSistema, sistema)
+    if not c:
+        db.session.add(ContactoSistema(sistema=sistema, ultima_vez=ahora))
+        return
+    if c.callado_desde:
+        minutos = int((ahora - c.ultima_vez).total_seconds() // 60)
+        _avisar_telegram(f"✅ Firztnet Central: {_nombre_sistema(sistema)} vuelve a enviar datos (estuvo {minutos} min callado).")
+        c.callado_desde = None
+    c.ultima_vez = ahora
+
+
+def silencios():
+    """Sistemas que llevan más de SILENCIO_MIN minutos sin enviar nada (solo los que alguna vez enviaron)."""
+    from app.models import ContactoSistema
+    ahora = datetime.utcnow()
+    lista = []
+    for c in ContactoSistema.query.order_by(ContactoSistema.sistema).all():
+        if c.sistema == "pos":
+            continue  # los puntos de venta son ordenadores de tienda: se apagan por la noche
+        minutos = int((ahora - c.ultima_vez).total_seconds() // 60)
+        if minutos >= SILENCIO_MIN:
+            lista.append({"sistema": c.sistema, "nombre": _nombre_sistema(c.sistema), "minutos": minutos,
+                          "ultima_vez": c.ultima_vez.isoformat() + "Z"})
+    return lista
+
+
+def comprobar_silencios():
+    from app.models import ContactoSistema
+    callados = {x["sistema"]: x for x in silencios()}
+    for c in ContactoSistema.query.all():
+        if c.sistema in callados and not c.callado_desde:
+            c.callado_desde = datetime.utcnow()
+            x = callados[c.sistema]
+            _avisar_telegram(f"🔕 Firztnet Central: {x['nombre']} lleva {x['minutos']} min sin enviar datos. "
+                             "Puede estar caído, sin la clave de Central o con su tarea parada.")
+    db.session.commit()
+
+
+def _nombre_sistema(sistema):
+    from app.routes.central import NOMBRE_SISTEMA
+    return NOMBRE_SISTEMA.get(sistema, sistema)
+
+
+def _avisar_telegram(texto):
+    try:
+        from app.notificaciones import enviar_telegram
+        enviar_telegram(texto)
+    except Exception as e:  # sin Telegram configurado, el aviso queda en la campana igualmente
+        print("Telegram:", e)
 
 
 def _toca(s, ahora):
@@ -300,4 +364,5 @@ def resumen():
             "ssl_dias": (s.ssl_caduca - ahora).days if s.ssl_caduca else None,
         })
     incidencias = IncidenciaSistema.query.order_by(IncidenciaSistema.inicio.desc()).limit(40).all()
-    return {"sistemas": lista, "incidencias": [i.to_dict() for i in incidencias], "intervalo_min": INTERVALO_MIN, "intervalo_auto_min": INTERVALO_AUTO_MIN}
+    return {"sistemas": lista, "incidencias": [i.to_dict() for i in incidencias], "intervalo_min": INTERVALO_MIN, "intervalo_auto_min": INTERVALO_AUTO_MIN,
+            "silencios": silencios(), "silencio_min": SILENCIO_MIN}

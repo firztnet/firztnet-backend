@@ -190,9 +190,16 @@ def create_app():
 
     @app.get("/api/salud")
     def salud():
-        # «version»: el cambio de GitHub que está publicado (Railway lo pone él solo); sirve para confirmar cada despliegue
-        return {"estado": "ok", "servicio": "Firztnet - gestión de reparaciones",
-                "version": (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local")[:7]}
+        # «version»: el cambio de GitHub que está publicado (Railway lo pone él solo); sirve para confirmar cada despliegue.
+        # También se comprueba que la base de datos responde: si no, «error» y código 503 (lo ve el vigilante externo).
+        from sqlalchemy import text
+        version = (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local")[:7]
+        try:
+            db.session.execute(text("SELECT 1"))
+        except Exception:
+            db.session.rollback()
+            return {"estado": "error", "base_de_datos": "no responde", "servicio": "Firztnet - gestión de reparaciones", "version": version}, 503
+        return {"estado": "ok", "base_de_datos": "ok", "servicio": "Firztnet - gestión de reparaciones", "version": version}
 
     @app.errorhandler(413)
     def _archivo_demasiado_grande(e):

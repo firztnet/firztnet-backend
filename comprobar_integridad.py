@@ -30,6 +30,7 @@ OBLIGATORIO = {
         ("class RegistroVehiculo", "Flota: registros de los vehículos"),
         ("class PosTienda", "Punto de venta: tiendas"),
         ("class PosEquipo", "Punto de venta: ordenadores de cada tienda"),
+        ("class ContactoSistema", "Central: alarma de silencio (último envío de cada sistema)"),
     ],
     "app/__init__.py": [
         ("register_blueprint(central_bp", "Central: sus rutas"),

@@ -364,6 +364,8 @@ def recibir_locales():
             l.dias = None
     db.session.flush()
     _foto_del_dia()
+    from app.salud import anotar_contacto
+    anotar_contacto(sistema)
     if "copia_sistema" in data:  # copias de seguridad vigiladas
         from app.routes.central_extra import guardar_copia_sistema
         guardar_copia_sistema(sistema, data["copia_sistema"])
