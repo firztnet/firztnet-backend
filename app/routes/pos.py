@@ -461,7 +461,31 @@ def _version_dict(v):
     return {"id": v.id, "version": v.version, "notas": v.notas or "", "tamano": v.tamano, "estado": v.estado,
             "destino": v.destino, "tiendas": _tiendas_de(v), "subida": v.subida.isoformat() + "Z" if v.subida else None,
             "equipos_destino": len(destinatarios), "equipos_al_dia": len(ya),
-            "fallidas": sum(1 for e in destinatarios if e.actualizacion_estado == "fallida" and e.actualizacion_version == v.version)}
+            "fallidas": sum(1 for e in destinatarios if e.actualizacion_estado == "fallida" and e.actualizacion_version == v.version),
+            "ordenadores": [_estado_actualizacion(e, v) for e in destinatarios]}
+
+
+def _estado_actualizacion(e, v):
+    """En qué punto está un ordenador respecto a una versión publicada (para ver cuáles la tienen y cuáles faltan)."""
+    ahora = datetime.utcnow()
+    sin_noticias_min = int((ahora - e.ultimo_parte).total_seconds() // 60) if e.ultimo_parte else None
+    de_esta = e.actualizacion_version == v.version
+    if _num_version(e.version) >= _num_version(v.version):
+        clave, texto = "al_dia", f"Ya la tiene (versión {e.version})"
+    elif de_esta and e.actualizacion_estado == "fallida":
+        clave, texto = "fallida", "Falló al instalarla y volvió a la versión anterior" + (f": {e.actualizacion_detalle}" if e.actualizacion_detalle else "")
+    elif _num_version(e.version) < _num_version("2.1.0"):
+        clave, texto = "manual", f"Tiene la {e.version or 'versión antigua'}, que no se actualiza sola: hay que instalarla a mano una vez"
+    elif sin_noticias_min is None or sin_noticias_min > 30:
+        clave, texto = "sin_noticias", "No se conecta a Central " + (f"desde hace {sin_noticias_min // 60} h {sin_noticias_min % 60} min" if sin_noticias_min is not None else "todavía") + ": revisa que tenga internet y el programa abierto"
+    elif de_esta and e.actualizacion_estado == "descargada":
+        clave, texto = "aceptar", "Descargada: falta que en la tienda pulsen «Actualizar ahora» (o la instala sola al volver a abrir el programa)"
+    elif v.subida and e.ultimo_parte and e.ultimo_parte > v.subida:
+        clave, texto = "descargando", "Avisada: la está descargando"
+    else:
+        clave, texto = "pendiente", "La recogerá en su próxima conexión (como mucho 10 minutos)"
+    return {"id": e.id, "tienda": e.tienda.nombre if e.tienda else "", "equipo": e.nombre or e.machine_id, "version": e.version,
+            "estado": clave, "texto": texto, "ultimo_parte": e.ultimo_parte.isoformat() + "Z" if e.ultimo_parte else None}
 
 
 @pos_bp.get("/versiones")
