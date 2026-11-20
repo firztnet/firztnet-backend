@@ -20,6 +20,7 @@ import json
 import os
 import re
 import secrets
+import time
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, jsonify, request, send_file
@@ -756,6 +757,37 @@ def desactivar_equipo(eid):
     sincronizar_ficha(e.tienda)
     db.session.commit()
     return jsonify({"ok": True})
+
+
+# ---------- Contraseña olvidada en la tienda: código de rescate ----------
+VENTANA_RESCATE = 900  # 15 min; el POS acepta el tramo actual y los dos anteriores (unos 30-45 min)
+
+
+def _codigo_rescate(clave_copias, machine_id, usuario, tramo):
+    """El mismo cálculo que hace el POS (licencia.py · codigo_rescate). Usa la clave que solo tienen el equipo y Central."""
+    k = hmac.new(clave_copias.encode(), b"firztnet-pos-rescate", hashlib.sha256).digest()
+    d = hmac.new(k, f"{machine_id}|{usuario.strip().lower()}|{tramo}".encode(), hashlib.sha256).digest()
+    return base64.b32encode(d).decode()[:8]
+
+
+@pos_bp.post("/equipos/<int:eid>/rescate")
+def codigo_rescate(eid):
+    """Código de 8 letras para que la tienda restablezca la contraseña de un usuario en ESE ordenador (POS 2.5.0 o posterior).
+    Se comprueba en el propio POS, sin internet; vale unos 30 minutos y una sola vez."""
+    e = PosEquipo.query.get_or_404(eid)
+    usuario = _texto(request.get_json(silent=True) or {}, "usuario", 60) or "admin"
+    if not e.activo:
+        return jsonify({"error": "Ese ordenador está desactivado"}), 400
+    if not e.clave_copias:
+        return jsonify({"error": "Ese ordenador aún no se ha enlazado con Central: hay que restablecerla en la tienda con la herramienta de Firztnet"}), 400
+    tramo = int(time.time() // VENTANA_RESCATE)
+    codigo = _codigo_rescate(e.clave_copias, e.machine_id, usuario, tramo)
+    return jsonify({
+        "codigo": f"{codigo[:4]}-{codigo[4:]}", "usuario": usuario, "equipo": e.nombre or e.machine_id,
+        "minutos": 30, "version": e.version,
+        "aviso": None if (e.version and _num_version(e.version) >= _num_version("2.5.0")) else
+                 "Ese ordenador tiene una versión anterior a la 2.5.0: actualízalo antes para poder usar el código",
+    })
 
 
 @pos_bp.post("/tiendas/<int:tid>/licencia-manual")

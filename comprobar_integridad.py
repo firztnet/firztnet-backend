@@ -53,7 +53,7 @@ OBLIGATORIO = {
     "app/routes/central_extra.py": [("def guardar_copia_sistema", "Central: copias de los sistemas")],
     "app/salud.py": [("def comprobar_todo", "Central: la vigilancia de los sistemas")],
     "app/routes/flota.py": [("flota_bp", "Flota")],
-    "app/routes/pos.py": [("/entrada/parte", "Punto de venta: parte de cada tienda"), ("def licencia_de", "Punto de venta: licencias firmadas")],
+    "app/routes/pos.py": [("/entrada/parte", "Punto de venta: parte de cada tienda"), ("def licencia_de", "Punto de venta: licencias firmadas"), ("/rescate", "Punto de venta: código para contraseña olvidada")],
 }
 
 
